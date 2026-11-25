@@ -1,0 +1,4 @@
+title = "traffic-purchase-app"
+
+[extend]
+useDefault = true

@@ -1,0 +1,22 @@
+[
+  {
+    "contractEntry": {
+      "JsActiveContract": {
+        "createdEvent": {
+          "contractId": "0084a1c2exampleholdingcid",
+          "templateId": "abc123:Splice.Amulet:Amulet",
+          "interfaceViews": [
+            {
+              "interfaceId": "#splice-api-token-holding-v1:Splice.Api.Token.HoldingV1:Holding",
+              "viewValue": {
+                "instrumentId": { "admin": "dso::1220", "id": "Amulet" },
+                "amount": "11042.5",
+                "lock": null
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

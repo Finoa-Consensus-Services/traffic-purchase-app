@@ -1,0 +1,18 @@
+{
+  "external_party_amulet_rules_update": {
+    "contract": {
+      "contract_id": "00abc123",
+      "payload": {
+        "amuletPrice": "0.12",
+        "decentralizedSynchronizer": {
+          "activeSynchronizer": "global-domain::1220dead",
+          "fees": {
+            "extraTrafficPrice": "55",
+            "minTopupAmount": "200000"
+          }
+        }
+      }
+    }
+  },
+  "open_mining_rounds": []
+}

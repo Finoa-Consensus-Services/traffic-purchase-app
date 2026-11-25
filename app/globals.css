@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), Arial, sans-serif;
+  --font-mono: var(--font-ibm-plex-mono), ui-monospace, Menlo, monospace;
+
+  --color-ink: #1d2129;
+  --color-ink-muted: #5c6570;
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f4f7fb;
+  --color-line: #e1e8f0;
+  --color-primary: #1e293b;
+  --color-primary-deep: #0f172a;
+  --color-accent: #2563eb;
+  --color-accent-strong: #1d4ed8;
+  --color-accent-soft: #eff6ff;
+  --color-danger: #9a2f32;
+  --color-warning: #9a6700;
+  --color-disabled: #e8eef5;
+  --color-disabled-ink: #8b95a1;
+  --color-hero-muted: #d2dbe6;
+  --color-track: #d5dee8;
+
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+}
+
+@layer base {
+  html {
+    background: var(--color-surface);
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    color: var(--color-ink);
+    font-weight: 500;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+@utility panel-shadow {
+  box-shadow: 0 30px 80px -36px rgb(15 23 42 / 0.45);
+}
+
+@utility bar-shadow {
+  box-shadow: 0 16px 40px -28px rgb(15 23 42 / 0.45);
+}
+
+.hero-wash {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(520px 280px at 78% 42%, rgb(37 99 235 / 0.16), transparent 70%),
+    radial-gradient(circle, rgb(30 41 59 / 0.12) 1px, transparent 1.15px) 0 0 / 28px 18px;
+  mask-image: linear-gradient(to bottom, black 70%, transparent);
+}
+
+.app-wash {
+  min-height: 100vh;
+  background:
+    radial-gradient(820px 380px at 100% -10%, rgb(37 99 235 / 0.16), transparent 60%),
+    radial-gradient(640px 320px at -10% 0%, rgb(30 41 59 / 0.12), transparent 55%),
+    var(--color-surface-sunken);
+}
+
+dialog.vt-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: min(26rem, calc(100% - 2rem));
+  height: fit-content;
+  max-height: calc(100dvh - 2rem);
+  margin: 0;
+  translate: -50% -50%;
+  overflow: auto;
+  border: 0;
+  border-radius: var(--radius-xl);
+  padding: 1.5rem;
+  color: var(--color-ink);
+  box-shadow: 0 40px 90px -28px rgb(15 23 42 / 0.45);
+}
+
+dialog.vt-dialog[open] {
+  animation: vt-dialog-rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+dialog.vt-dialog::backdrop {
+  background: color-mix(in srgb, var(--color-primary-deep) 62%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+@keyframes vt-dialog-rise {
+  from {
+    opacity: 0;
+    translate: -50% calc(-50% + 8px);
+  }
+  to {
+    opacity: 1;
+    translate: -50% -50%;
+  }
+}
+
+@keyframes cc-reveal {
+  0% {
+    filter: blur(7px);
+    opacity: 0.35;
+  }
+  45% {
+    filter: blur(7px);
+    opacity: 0.35;
+  }
+  100% {
+    filter: blur(0);
+    opacity: 1;
+  }
+}
+
+.cc-reveal {
+  animation: cc-reveal 0.55s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

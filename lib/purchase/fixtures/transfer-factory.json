@@ -1,0 +1,15 @@
+{
+  "factoryId": "00factory-cid",
+  "transferKind": "self",
+  "choiceContext": {
+    "choiceContextData": { "values": { "openMiningRound": "round-cid" } },
+    "disclosedContracts": [
+      {
+        "templateId": "#pkg:Splice.AmuletRules:AmuletRules",
+        "contractId": "rules-cid",
+        "createdEventBlob": "rules-blob",
+        "synchronizerId": "sync::domain"
+      }
+    ]
+  }
+}
