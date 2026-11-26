@@ -7,7 +7,7 @@ PORT ?= 3000
 .PHONY: build run gitleaks
 
 build:
-	npm install
+	npm install --legacy-peer-deps
 	npm run build
 
 run: build
