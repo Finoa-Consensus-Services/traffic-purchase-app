@@ -33,23 +33,35 @@ const LOOP_CAPABILITIES: CapabilityKey[] = [
   "ledgerApi",
 ];
 
+type CantonNetwork = "devnet" | "testnet" | "mainnet" | "local";
+
+const PARTY_LAYER_NETWORKS = {
+  devnet: "canton:da-devnet",
+  testnet: "canton:da-testnet",
+  mainnet: "canton:da-mainnet",
+  local: "canton:da-local",
+} as const satisfies Record<CantonNetwork, string>;
+
+/** Loop reports `canton:devnet`; PartyLayer's Devnet id is `canton:da-devnet`. */
+const loopNetworkName = (network: string): CantonNetwork | null => {
+  const reference = network.replace(/^canton:/, "").replace(/^da-/, "");
+
+  if (reference === "devnet" || reference === "dev") return "devnet";
+  if (reference === "testnet" || reference === "test") return "testnet";
+  if (reference === "mainnet" || reference === "main") return "mainnet";
+  if (reference === "local") return "local";
+  return null;
+};
+
 const toLoopNetwork = (network: string): LoopNetwork => {
-  const normalizedNetwork = network.replace(/^canton:/, "");
-
-  if (normalizedNetwork === "devnet" || normalizedNetwork === "dev") {
-    return "devnet";
-  }
-  if (normalizedNetwork === "testnet" || normalizedNetwork === "test") {
-    return "testnet";
-  }
-  if (normalizedNetwork === "mainnet" || normalizedNetwork === "main") {
-    return "mainnet";
-  }
-  if (normalizedNetwork === "local") {
-    return "local";
-  }
-
+  const loopNetwork = loopNetworkName(network);
+  if (loopNetwork) return loopNetwork;
   throw new Error(`Loop wallet does not support the "${network}" network.`);
+};
+
+const toPartyLayerNetwork = (network: string): string => {
+  const loopNetwork = loopNetworkName(network);
+  return loopNetwork ? PARTY_LAYER_NETWORKS[loopNetwork] : network;
 };
 
 const isPrepareExecuteRequest = (
@@ -116,7 +128,7 @@ export class LoopCip103Adapter implements WalletAdapter {
       session: {
         walletId: this.walletId,
         partyId,
-        network: network.networkId,
+        network: toPartyLayerNetwork(network.networkId),
         createdAt: Date.now(),
       },
       capabilities: this.getCapabilities(),
@@ -159,7 +171,7 @@ export class LoopCip103Adapter implements WalletAdapter {
         ...persisted,
         walletId: this.walletId,
         partyId: toPartyId(account.partyId),
-        network: network.networkId,
+        network: toPartyLayerNetwork(network.networkId),
         capabilitiesSnapshot: this.getCapabilities(),
       };
     } catch (error) {

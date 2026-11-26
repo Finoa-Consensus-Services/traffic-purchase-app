@@ -96,13 +96,35 @@ test("Loop CIP-0103 adapter connects through the native provider", async (t) => 
   const result = await adapter.connect(context, { timeoutMs: 10_000 });
 
   assert.equal(result.partyId, account.partyId);
-  assert.equal(result.session.network, account.networkId);
+  assert.equal(result.session.network, "canton:da-devnet");
   assert.equal(initCalls.length, 1);
   assert.equal(initCalls[0]?.network, "devnet");
   assert.deepEqual(initCalls[0]?.options, {
     openMode: "popup",
     requestSigningMode: "popup",
   });
+});
+
+test("Loop CIP-0103 adapter keeps a different Loop network visible", async (t) => {
+  useBrowserEnvironment(t);
+  const initCalls: Array<Parameters<typeof loop.init>[0]> = [];
+  const provider = new Cip103Provider({
+    connect: async () => ({
+      isConnected: true,
+      isNetworkConnected: true,
+    }),
+    getPrimaryAccount: async () => ({ ...account, networkId: "canton:mainnet" }),
+    getActiveNetwork: async () => ({ networkId: "canton:mainnet" }),
+  });
+  const adapter = createAdapter(provider, initCalls);
+
+  const result = await adapter.connect(
+    { ...context, network: "canton:da-devnet" },
+    { timeoutMs: 10_000 },
+  );
+
+  assert.equal(initCalls[0]?.network, "devnet");
+  assert.equal(result.session.network, "canton:da-mainnet");
 });
 
 test("Loop CIP-0103 adapter forwards ledger-end without a legacy allowlist", async (t) => {
