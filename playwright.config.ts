@@ -20,6 +20,10 @@ export default defineConfig({
     url: `${baseURL}/buy`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    env: {
+      ...process.env,
+      APP_NETWORK: "devnet",
+    },
   },
   projects: [
     {

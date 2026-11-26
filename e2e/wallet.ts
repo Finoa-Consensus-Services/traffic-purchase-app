@@ -1,6 +1,6 @@
 import type { BrowserContext } from "@playwright/test";
 
-export type WalletDecision = "approve" | "reject";
+export type WalletDecision = "approve" | "reject" | "user-rejected" | "unsupported";
 
 export type FakeWalletOptions = {
   decision: WalletDecision;
@@ -171,8 +171,12 @@ export async function installFakeWallet(
         reply(request.id, { result: connection(connected) });
         return;
       }
-      if (request.method === "listAccounts" || request.method === "getPrimaryAccount") {
+      if (request.method === "listAccounts") {
         reply(request.id, { result: connected ? [account()] : [] });
+        return;
+      }
+      if (request.method === "getPrimaryAccount") {
+        reply(request.id, { result: connected ? account() : null });
         return;
       }
       if (request.method === "ledgerApi") {
@@ -211,16 +215,23 @@ export async function installFakeWallet(
         reply(request.id, { result: holding(settings().balanceCc) });
         return;
       }
-      if (request.method === "prepareExecute") {
+      if (request.method === "prepareExecute" || request.method === "prepareExecuteAndWait") {
         view.__playwrightLastPrepare = params;
-        reply(request.id, { result: null });
-        return;
-      }
-      if (request.method === "prepareExecuteAndWait") {
-        view.__playwrightLastPrepare = params;
+        const decision = settings().decision;
+        if (decision === "user-rejected") {
+          reply(request.id, { error: { code: 4001, message: "User rejected the request." } });
+          return;
+        }
+        if (decision === "unsupported") {
+          reply(request.id, { error: { code: 4200, message: "Unsupported method." } });
+          return;
+        }
+        if (request.method === "prepareExecute") {
+          reply(request.id, { result: null });
+          return;
+        }
         const commandId =
           typeof params.commandId === "string" ? params.commandId : "cmd-playwright";
-        const decision = settings().decision;
         const reportedUpdateId =
           settings().reportedUpdateId ??
           "1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a";

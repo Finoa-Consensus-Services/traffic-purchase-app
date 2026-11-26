@@ -11,9 +11,21 @@ const WalletProviders = dynamic(
 export function ClientProviders({
   children,
   appOrigin,
+  devnet,
+  walletConnectProjectId,
 }: {
   children: ReactNode;
   appOrigin: string;
+  devnet: boolean;
+  walletConnectProjectId?: string;
 }) {
-  return <WalletProviders appOrigin={appOrigin}>{children}</WalletProviders>;
+  return (
+    <WalletProviders
+      appOrigin={appOrigin}
+      devnet={devnet}
+      walletConnectProjectId={walletConnectProjectId}
+    >
+      {children}
+    </WalletProviders>
+  );
 }
