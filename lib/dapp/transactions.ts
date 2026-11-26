@@ -26,6 +26,7 @@ export type SubmitProvider = TxListener<TxChangedEvent> & {
 type SubmitOptions = {
   timeoutMs?: number;
   onApprovalUrl?: (url: string) => void;
+  confirmExecuted?: (commandId: string, signal: AbortSignal) => Promise<string>;
   prepareExecuteAndWait?: (params: PrepareExecuteParams) => Promise<PrepareExecuteAndWaitResult>;
   provider?: SubmitProvider | null;
 };
@@ -106,6 +107,14 @@ export async function submitPrepareExecute(
     providerType: status?.provider?.providerType,
   });
 
+  const confirmationController = new AbortController();
+  const pendingConfirmation = options?.confirmExecuted
+    ? options.confirmExecuted(commandId, confirmationController.signal).then((updateId) => ({
+        kind: "confirmation" as const,
+        updateId,
+      }))
+    : null;
+
   try {
     if (isSyncCapable(status) && options?.prepareExecuteAndWait) {
       const provider = options.provider ?? null;
@@ -122,8 +131,17 @@ export async function submitPrepareExecute(
             (error: unknown) => ({ kind: "event-error" as const, error }),
           )
         : null;
-      const outcome = pendingEvent ? await Promise.race([pendingWait, pendingEvent]) : await pendingWait;
+      const outcome = await Promise.race([
+        pendingWait,
+        ...(pendingEvent ? [pendingEvent] : []),
+        ...(pendingConfirmation ? [pendingConfirmation] : []),
+      ]);
 
+      if (outcome.kind === "confirmation") {
+        watched?.promise.catch(() => {});
+        watched?.cancel();
+        return { ok: true, commandId, updateId: outcome.updateId };
+      }
       if (outcome.kind === "event") {
         pendingWait.then(
           () => {},
@@ -174,19 +192,49 @@ export async function submitPrepareExecute(
     }
     const watched = watchTransaction(provider, commandId, options?.timeoutMs ?? 600_000);
     const restoreCapture = installPopupCapture((url) => options?.onApprovalUrl?.(url));
+    let requestOutcome:
+      | { kind: "request" }
+      | { kind: "request-error"; error: unknown }
+      | { kind: "confirmation"; updateId: string };
     try {
-      await provider.request({ method: "prepareExecute", params: request });
-    } catch (error) {
-      watched.promise.catch(() => {});
-      watched.cancel();
-      throw error;
+      const pendingRequest = provider.request({ method: "prepareExecute", params: request }).then(
+        () => ({ kind: "request" as const }),
+        (error: unknown) => ({ kind: "request-error" as const, error }),
+      );
+      requestOutcome = pendingConfirmation
+        ? await Promise.race([pendingRequest, pendingConfirmation])
+        : await pendingRequest;
     } finally {
       restoreCapture();
     }
-    return txResult(await watched.promise, commandId);
+    if (requestOutcome.kind === "confirmation") {
+      watched.promise.catch(() => {});
+      watched.cancel();
+      return { ok: true, commandId, updateId: requestOutcome.updateId };
+    }
+    if (requestOutcome.kind === "request-error") {
+      watched.promise.catch(() => {});
+      watched.cancel();
+      throw requestOutcome.error;
+    }
+
+    const finalOutcome = pendingConfirmation
+      ? await Promise.race([
+          watched.promise.then((tx) => ({ kind: "event" as const, tx })),
+          pendingConfirmation,
+        ])
+      : { kind: "event" as const, tx: await watched.promise };
+    if (finalOutcome.kind === "confirmation") {
+      watched.promise.catch(() => {});
+      watched.cancel();
+      return { ok: true, commandId, updateId: finalOutcome.updateId };
+    }
+    return txResult(finalOutcome.tx, commandId);
   } catch (error) {
     const result = failure(commandId, error);
     dappWarn("purchase", "prepareExecute error", { commandId, message: result.message });
     return result;
+  } finally {
+    confirmationController.abort();
   }
 }

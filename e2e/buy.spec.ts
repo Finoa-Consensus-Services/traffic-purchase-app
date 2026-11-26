@@ -479,6 +479,38 @@ test("a token-standard purchase submits TransferFactory_Transfer", async ({ page
   expect(payload).not.toContain("AmuletRules_BuyMemberTraffic");
 });
 
+test("a token-standard purchase completes when the wallet callback hangs", async ({
+  page,
+}) => {
+  await openBuy(
+    page,
+    [memberFixture(MEMBER_ID)],
+    { ...approvedWallet, decision: "hang" },
+    {
+      path: "token-standard",
+      confirmationUpdateId: UPDATE_ID,
+    },
+  );
+  await quoteOneMegabyte(page);
+  await connectWallet(page);
+  await page.getByRole("button", { name: "Review" }).click();
+  await page.getByRole("button", { name: "Purchase path" }).click();
+  await page.getByRole("option", { name: "Token transfer" }).click();
+  await page.getByRole("checkbox", { name: "I agree to the Terms" }).check();
+  await page.getByRole("checkbox", { name: "I may buy traffic in my jurisdiction." }).check();
+  await page.getByRole("button", { name: "Confirm in wallet" }).click();
+
+  await expect(page.getByRole("heading", { name: "Traffic credited" })).toBeVisible();
+  await expect(main(page).getByRole("link", { name: UPDATE_ID })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __playwrightLastPrepare?: unknown })
+          .__playwrightLastPrepare,
+    ),
+  ).toBeDefined();
+});
+
 test("a validator with no traffic left cannot continue", async ({ page }) => {
   await openBuy(page, [memberFixture(MEMBER_ID, 0)]);
   await findValidator(page, MEMBER_ID);

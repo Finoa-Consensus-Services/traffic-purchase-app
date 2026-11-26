@@ -116,6 +116,22 @@ test("txChanged finishes the purchase while prepareExecuteAndWait is still open"
   assert.equal(listeners.size, 0);
 });
 
+test("ledger confirmation finishes while the wallet callback is still open", async () => {
+  const { provider, listenerCount } = createMockProvider(async () => {});
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    confirmExecuted: async () => "1220confirmed",
+    prepareExecuteAndWait: () => new Promise<PrepareExecuteAndWaitResult>(() => {}),
+    provider,
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    commandId: "cmd-1",
+    updateId: "1220confirmed",
+  });
+  assert.equal(listenerCount(), 0);
+});
+
 test("submitPrepareExecute falls back to prepareExecute + txChanged when prepareExecuteAndWait throws", async () => {
   const { provider, listenerCount } = createMockProvider(async (_params, emit) => {
     emit({

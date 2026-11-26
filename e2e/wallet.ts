@@ -1,6 +1,11 @@
 import type { BrowserContext } from "@playwright/test";
 
-export type WalletDecision = "approve" | "reject" | "user-rejected" | "unsupported";
+export type WalletDecision =
+  | "approve"
+  | "hang"
+  | "reject"
+  | "user-rejected"
+  | "unsupported";
 
 export type FakeWalletOptions = {
   decision: WalletDecision;
@@ -218,6 +223,9 @@ export async function installFakeWallet(
       if (request.method === "prepareExecute" || request.method === "prepareExecuteAndWait") {
         view.__playwrightLastPrepare = params;
         const decision = settings().decision;
+        if (decision === "hang") {
+          return;
+        }
         if (decision === "user-rejected") {
           reply(request.id, { error: { code: 4001, message: "User rejected the request." } });
           return;

@@ -6,8 +6,8 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 
 | Suite | Command | Runner | Files | Test Cases | Runs in CI |
 | --- | --- | --- | ---: | ---: | --- |
-| Unit & API route tests | `npm test` | `tsx --test` (`node:test`) | 51 | 174 | Yes (every push / PR) |
-| Browser E2E (mocked wallet & APIs) | `npm run test:e2e` | Playwright (`chromium`) | 1 | 29 | Yes (every push / PR) |
+| Unit & API route tests | `npm test` | `tsx --test` (`node:test`) | 54 | 181 | Yes (every push / PR) |
+| Browser E2E (mocked wallet & APIs) | `npm run test:e2e` | Playwright (`chromium`) | 1 | 30 | Yes (every push / PR) |
 
 ---
 
@@ -57,21 +57,21 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 
 ---
 
-## 2. Unit Tests — Wallet / CIP-0103 dApp Layer (`lib/dapp/*.test.ts` — 29 cases)
+## 2. Unit Tests — Wallet / CIP-0103 dApp Layer (`lib/dapp/*.test.ts` — 30 cases)
 
 | File | Scenarios Covered | Expected Result |
 | --- | --- | --- |
 | `errors.test.ts` (4) | CIP-0103 provider errors (`userRejectedRequest`, `unauthorized`, `unsupportedMethod`, `disconnected`, `chainDisconnected`), RPC errors (`transactionRejected`, `resourceUnavailable`), `LOCAL_VERDICT_INACTIVE_CONTRACTS`, non-object errors, `messageForTxFailure`, `isUnsupportedWalletOperation` code + keyword checks. | Returns user-friendly copy for every known error code/pattern; identifies unsupported operations by code or message (`unknown choice`, `transferfactory`, `not support`) without false positives on user rejection. |
 | `normalize.test.ts` (1) | Single wallet, array, `null`/`undefined`, primary vs non-primary selection. | Normalizes to array (`[]` for nullish) and picks `primary: true`, falling back to first entry or `null`. |
 | `tx-match.test.ts` (7) | Exact `commandId` match, single mismatched `executed` event, multiple ambiguous `executed` events, mismatched `failed` event, non-terminal events (`pending`), `watchTransaction` listener attachment/timeout/cancel cleanup, blocked popup URL capture (`trackPopupOpen`). | Exact `commandId` wins; single mismatched `executed` matches while mismatched `failed` and ambiguous pairs return `null`; timeout and `cancel()` both reject and detach listeners; blocked popups emit the assigned approval URL. |
-| `transactions.test.ts` (6) | `submitPrepareExecute` sync-capable (`browser`) `prepareExecuteAndWait` success/failure/throw fallback to `prepareExecute` + `txChanged`; a `txChanged` result that arrives while `prepareExecuteAndWait` is still open; `remote` provider skipping sync path; `prepareExecute` rejection cleaning up listeners with no unhandled promise rejection; timeout returning `timedOut: true`; missing provider error; `submitPrepareExecuteWithLegacyFallback` retrying legacy only on unsupported errors (never on user rejection). | Returns `{ ok: true, commandId, updateId }` on execution, `{ ok: false, ... }` with proper `code`/`timedOut` on failure, detaches all listeners cleanly, and prevents double-prompting on user decline. |
+| `transactions.test.ts` (7) | `submitPrepareExecute` sync-capable (`browser`) `prepareExecuteAndWait` success/failure/throw fallback to `prepareExecute` + `txChanged`; `txChanged` or an independently confirmed ledger result arriving while the wallet callback remains open; `remote` provider skipping sync path; `prepareExecute` rejection cleaning up listeners with no unhandled promise rejection; timeout returning `timedOut: true`; missing provider error; `submitPrepareExecuteWithLegacyFallback` retrying legacy only on unsupported errors (never on user rejection). | Returns `{ ok: true, commandId, updateId }` on execution or exact ledger confirmation, `{ ok: false, ... }` with proper `code`/`timedOut` on failure, detaches all listeners cleanly, and prevents double-prompting on user decline. |
 | `loop-cip103-adapter.test.ts` (5) | Native Loop capability declaration, CIP-0103 connection, Loop `canton:devnet` mapped to PartyLayer `canton:da-devnet`, unrestricted `ledger-end` forwarding, and one-step `prepareExecuteAndWait`. | Replaces PartyLayer's legacy Loop adapter without adding a wallet entry, omits unsupported separate signing, accepts Loop's Devnet id, and returns only a real executed update. |
 | `party-layer-provider.test.ts` (2) | Object with `request`, `on`, and `removeListener`. Listing wallets on the beta channel. | Accepts a CIP-0103 provider surface and rejects incomplete objects. Announced extensions stay in the list beside the beta catalog. |
 | `saved-wallets.test.ts` (4) | Store and reload a wallet URL, replace the same URL including a trailing slash, drop invalid entries and broken JSON, remove one saved wallet. | User-added wallets persist in `localStorage` under `traffic-purchase-saved-wallets` and can be removed without affecting the rest of the list. |
 
 ---
 
-## 3. Unit Tests — Traffic Purchase Pipeline (`lib/purchase/*.test.ts` — 76 cases)
+## 3. Unit Tests — Traffic Purchase Pipeline (`lib/purchase/*.test.ts` — 77 cases)
 
 | File | Scenarios Covered | Expected Result |
 | --- | --- | --- |
@@ -96,19 +96,21 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 | `synchronizer-id.test.ts` (2) | Trimming whitespace, single and double percent-decoding (`%3A`, `%253A`), and leaving malformed `%ZZ` escapes intact. | Always yields canonical raw synchronizer strings without throwing on invalid escapes. |
 | `token-standard-constants.test.ts` (2) | `formatCcAmount` trimming trailing zeros and rejecting `<= 0` / non-finite values; `defaultRequestedAtIso` (past) and `defaultExecuteBeforeIso` (future). | Emits clean decimal strings and valid time windows for Token Standard transfers. |
 | `transfer-factory-paths.test.ts` (3) | Public Scan without registry env (`null` / `[]`), `TRANSFER_REGISTRY_BASE_URL` returning V1 + V2 paths, `SCAN_TRANSFER_FACTORY_PATH` override, scan-proxy base fallback, and `transferFactoryRequestUrl` throwing when unconfigured. | Never mistakes `/api/scan` for a registry base; builds exact registry request URLs. |
+| `wait-for-purchase-confirmation.test.ts` (1) | Posting the exact reviewed Token Standard transfer and accepting a returned `1220...` update id. | Lets an accepted purchase finish when the wallet callback remains open. |
 
 ---
 
-## 4. Unit Tests — Server Auth & Local Fixtures (`lib/server/*.test.ts` — 9 cases)
+## 4. Unit Tests — Server Auth, Confirmation & Local Fixtures (`lib/server/*.test.ts` — 12 cases)
 
 | File | Scenarios Covered | Expected Result |
 | --- | --- | --- |
 | `registry-auth.test.ts` (7) | Static `REGISTRY_BEARER_TOKEN`, Keycloak `client_credentials` token fetch + in-memory cache reuse, public Scan needing no bearer, scan-proxy requiring auth (503 when unset), `SCAN_BEARER_TOKEN` fallback without duplicating `Bearer `, `REGISTRY_REQUIRE_AUTH` (`true`/`false`) overrides, Keycloak error mapping (`401`, `500 -> 502`, non-JSON, missing `access_token`). | Returns the right `Authorization` header strictly on server-side rules and reuses a Keycloak token until 60 seconds before expiry (`REFRESH_SKEW_MS`). |
+| `loop-data-confirmation.test.ts` (3) | Exact sender/receiver/amount/memo/input-CID correlation, rejecting a transaction with different inputs, and Devnet/configured Loop Data base URLs. | Uses the accepted transaction only when it is the precise transfer reviewed by the user. |
 | `ui-fixtures.test.ts` (2) | `uiFixturesEnabled` gate (`UI_FIXTURES=1` allowed only when `NODE_ENV !== "production"`), `fixtureLookup` preserving `PAR::`/`MED::` IDs and defaulting party queries to `PAR::local-preview`. | Prevents mock fixtures from ever activating in production builds. |
 
 ---
 
-## 5. API Route Unit Tests (`app/api/**/route.test.ts` — 13 cases)
+## 5. API Route Unit Tests (`app/api/**/route.test.ts` — 15 cases)
 
 | Route | Scenarios Covered | Expected Result |
 | --- | --- | --- |
@@ -116,12 +118,13 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 | `POST /api/purchase/transfer-context` (3) | Invalid JSON / missing required fields / `ccAmount <= 0` (`400`), normalizing bare `memberId` (`1220bare -> PAR::1220bare`), filtering non-string/empty `inputHoldingCids`, building unencoded memo and `choiceArguments`, and returning `502` on synchronizer mismatch. | Returns `{ ok: true, memo, migrationId, transferFactory, choiceArguments }` or appropriate `400`/`502` JSON errors. |
 | `GET /api/purchase-context` (2) | Propagating `404` on scan-proxy; returning local fixture context when `UI_FIXTURES=1` in non-production. | Blocks unsupported scan-proxy calls cleanly and serves local fixtures in dev. |
 | `GET /api/purchase/path-status` (1) | Forwarding `x-probe-sender` header and `synchronizerId` query parameter to `resolvePurchasePath`. | Returns `{ ok: true, path: "token-standard", tokenStandardAvailable: true }` using the supplied sender party. |
+| `POST /api/purchase/confirmation` (2) | Rejecting an incomplete transfer and returning the Loop Data update id for an exact match. | Never marks Processing complete from a loosely related transaction. |
 | `GET /api/quote` (2) | Returning local fixture quote when `UI_FIXTURES=1`, including `quotedAt`, `validUntil`, and the local round contract; propagating upstream `ScanError` status (`401`) with `proxy` flag. | Returns a timed quote schema or upstream error status. |
 | `GET /api/pricing` (1) | Mapping upstream Scan `503` failures into `{ ok: false, proxy: false }` with status `503`. | Preserves upstream HTTP failure status. |
 
 ---
 
-## 6. Browser E2E Tests (`e2e/buy.spec.ts` — 29 cases)
+## 6. Browser E2E Tests (`e2e/buy.spec.ts` — 30 cases)
 
 Runs against the local Next.js app (`http://localhost:3107/buy`) with `APP_NETWORK=devnet`, using a mocked CIP-0103 browser extension wallet (`e2e/wallet.ts`) and mocked `/api/**` routes (`e2e/network.ts`). Devnet opens PartyLayer first. The current wallet list stays under **Other connection methods**.
 
@@ -146,13 +149,14 @@ Runs against the local Next.js app (`http://localhost:3107/buy`) with `APP_NETWO
 | 17 | Short balance blocks review and names the shortfall | Wallet with `1 CC` on a `600 CC` quote shows `Need 599.00 CC more.` and disables **Review**. |
 | 18 | Unknown validator stays on target step | Empty lookup displays `No validator found.` and keeps **Continue** disabled. |
 | 19 | Token-standard purchase submits `TransferFactory_Transfer` | Review hides the Token Standard transfer-factory ready sentence. Submits `TransferFactory_Transfer` with `cid-amulet-playwright`, raw `synchronizer-id=` memo (no `%3A`), `splice_traffic-manager` receiver, and no `AmuletRules_BuyMemberTraffic`, reaching **Traffic credited**. |
-| 20 | Validator with no traffic left cannot continue | Member with `availableBytes: 0` shows `This validator has no traffic left to submit.` and disables **Continue**. |
-| 21 | Price estimates explain Canton's protocol CC/USD rate on hover and click | On Amount and Review, the CC-price icon explains the 10-second pause, and `est.` tooltips reveal Canton's protocol CC/USD rate note on hover and stay open when toggled by click, closing on Escape. |
-| 22 | Submission UUID resolves to ledger update ID on receipt | Wallet returning a submission UUID triggers `/v2/commands/completions`; receipt shows the resolved `1220...` Lighthouse link and hides the raw UUID. |
-| 23 | USD and CC amount modes convert to traffic and carry through to review | Switching between `USD` (`$60 -> 1 MB`) and `CC` (`600.00 -> 1200 -> 2 MB`) carries `1,200.00 CC` and `2 MB` / `2,000,000 bytes` into Review. |
-| 24 | Confirm requires both Terms and Jurisdiction checkboxes | **Confirm in wallet** stays disabled with 0 or 1 checkbox checked and enables only when both are checked. |
-| 25 | Review blocks confirm when refreshed quote fails | When `/api/quote` fails (`502`) on confirm, displays `Upstream Scan unavailable`, stays on Review, and disables **Confirm in wallet**. |
-| 26 | Switching network clears previous validator lookup | Selecting a second domain in **Network** clears prior validator results and disables **Continue**. |
-| 27 | Disconnected wallet network shows warning and blocks confirm | Wallet with `isNetworkConnected: false` shows `Wallet is not connected to a Canton network (synchronizer offline).` and keeps **Confirm in wallet** disabled. |
-| 28 | Added wallet persists and can be removed | A wallet added under **Other connection methods** is still listed after reload, shows a **Remove** control, and stays gone after that control is used and the page reloads. Discovered extension wallets have no remove control. |
-| 29 | Lookup errors show cleaned Scan error name | Raw Scan `400` path/JSON error renders concisely as `Could not decode member ID` and keeps **Continue** disabled. |
+| 20 | Token-standard purchase completes when the wallet callback hangs | A wallet that submits but never answers `prepareExecuteAndWait` still reaches **Traffic credited** after the exact transfer is confirmed through Loop Data. |
+| 21 | Validator with no traffic left cannot continue | Member with `availableBytes: 0` shows `This validator has no traffic left to submit.` and disables **Continue**. |
+| 22 | Price estimates explain Canton's protocol CC/USD rate on hover and click | On Amount and Review, the CC-price icon explains the 10-second pause, and `est.` tooltips reveal Canton's protocol CC/USD rate note on hover and stay open when toggled by click, closing on Escape. |
+| 23 | Submission UUID resolves to ledger update ID on receipt | Wallet returning a submission UUID triggers `/v2/commands/completions`; receipt shows the resolved `1220...` Lighthouse link and hides the raw UUID. |
+| 24 | USD and CC amount modes convert to traffic and carry through to review | Switching between `USD` (`$60 -> 1 MB`) and `CC` (`600.00 -> 1200 -> 2 MB`) carries `1,200.00 CC` and `2 MB` / `2,000,000 bytes` into Review. |
+| 25 | Confirm requires both Terms and Jurisdiction checkboxes | **Confirm in wallet** stays disabled with 0 or 1 checkbox checked and enables only when both are checked. |
+| 26 | Review blocks confirm when refreshed quote fails | When `/api/quote` fails (`502`) on confirm, displays `Upstream Scan unavailable`, stays on Review, and disables **Confirm in wallet**. |
+| 27 | Switching network clears previous validator lookup | Selecting a second domain in **Network** clears prior validator results and disables **Continue**. |
+| 28 | Disconnected wallet network shows warning and blocks confirm | Wallet with `isNetworkConnected: false` shows `Wallet is not connected to a Canton network (synchronizer offline).` and keeps **Confirm in wallet** disabled. |
+| 29 | Added wallet persists and can be removed | A wallet added under **Other connection methods** is still listed after reload, shows a **Remove** control, and stays gone after that control is used and the page reloads. Discovered extension wallets have no remove control. |
+| 30 | Lookup errors show cleaned Scan error name | Raw Scan `400` path/JSON error renders concisely as `Could not decode member ID` and keeps **Continue** disabled. |

@@ -132,6 +132,7 @@ export type PurchaseApiOptions = {
   openRoundContractId?: string | (() => string);
   lookupError?: { status: number; error: string };
   transferContextError?: { status: number; error: string };
+  confirmationUpdateId?: string;
 };
 
 export type MemberFixture = {
@@ -264,6 +265,22 @@ export async function mockPurchaseApis(
     if (path === "/api/purchase/path-status") {
       await route.fulfill({
         json: purchasePath === "token-standard" ? tokenStandardPathBody : legacyPathBody,
+      });
+      return;
+    }
+    if (path === "/api/purchase/confirmation" && route.request().method() === "POST") {
+      const prepared = await page.evaluate(
+        () =>
+          Boolean(
+            (window as Window & { __playwrightLastPrepare?: unknown })
+              .__playwrightLastPrepare,
+          ),
+      );
+      await route.fulfill({
+        json: {
+          ok: true,
+          updateId: prepared ? (options.confirmationUpdateId ?? null) : null,
+        },
       });
       return;
     }
