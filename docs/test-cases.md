@@ -6,7 +6,7 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 
 | Suite | Command | Runner | Files | Test Cases | Runs in CI |
 | --- | --- | --- | ---: | ---: | --- |
-| Unit & API route tests | `npm test` | `tsx --test` (`node:test`) | 50 | 168 | Yes (every push / PR) |
+| Unit & API route tests | `npm test` | `tsx --test` (`node:test`) | 51 | 173 | Yes (every push / PR) |
 | Browser E2E (mocked wallet & APIs) | `npm run test:e2e` | Playwright (`chromium`) | 1 | 29 | Yes (every push / PR) |
 
 ---
@@ -57,14 +57,15 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 
 ---
 
-## 2. Unit Tests — Wallet / CIP-0103 dApp Layer (`lib/dapp/*.test.ts` — 23 cases)
+## 2. Unit Tests — Wallet / CIP-0103 dApp Layer (`lib/dapp/*.test.ts` — 28 cases)
 
 | File | Scenarios Covered | Expected Result |
 | --- | --- | --- |
 | `errors.test.ts` (4) | CIP-0103 provider errors (`userRejectedRequest`, `unauthorized`, `unsupportedMethod`, `disconnected`, `chainDisconnected`), RPC errors (`transactionRejected`, `resourceUnavailable`), `LOCAL_VERDICT_INACTIVE_CONTRACTS`, non-object errors, `messageForTxFailure`, `isUnsupportedWalletOperation` code + keyword checks. | Returns user-friendly copy for every known error code/pattern; identifies unsupported operations by code or message (`unknown choice`, `transferfactory`, `not support`) without false positives on user rejection. |
 | `normalize.test.ts` (1) | Single wallet, array, `null`/`undefined`, primary vs non-primary selection. | Normalizes to array (`[]` for nullish) and picks `primary: true`, falling back to first entry or `null`. |
 | `tx-match.test.ts` (7) | Exact `commandId` match, single mismatched `executed` event, multiple ambiguous `executed` events, mismatched `failed` event, non-terminal events (`pending`), `watchTransaction` listener attachment/timeout/cancel cleanup, blocked popup URL capture (`trackPopupOpen`). | Exact `commandId` wins; single mismatched `executed` matches while mismatched `failed` and ambiguous pairs return `null`; timeout and `cancel()` both reject and detach listeners; blocked popups emit the assigned approval URL. |
-| `transactions.test.ts` (5) | `submitPrepareExecute` sync-capable (`browser`) `prepareExecuteAndWait` success/failure/throw fallback to `prepareExecute` + `txChanged`; `remote` provider skipping sync path; `prepareExecute` rejection cleaning up listeners with no unhandled promise rejection; timeout returning `timedOut: true`; missing provider error; `submitPrepareExecuteWithLegacyFallback` retrying legacy only on unsupported errors (never on user rejection). | Returns `{ ok: true, commandId, updateId }` on execution, `{ ok: false, ... }` with proper `code`/`timedOut` on failure, detaches all listeners cleanly, and prevents double-prompting on user decline. |
+| `transactions.test.ts` (6) | `submitPrepareExecute` sync-capable (`browser`) `prepareExecuteAndWait` success/failure/throw fallback to `prepareExecute` + `txChanged`; a `txChanged` result that arrives while `prepareExecuteAndWait` is still open; `remote` provider skipping sync path; `prepareExecute` rejection cleaning up listeners with no unhandled promise rejection; timeout returning `timedOut: true`; missing provider error; `submitPrepareExecuteWithLegacyFallback` retrying legacy only on unsupported errors (never on user rejection). | Returns `{ ok: true, commandId, updateId }` on execution, `{ ok: false, ... }` with proper `code`/`timedOut` on failure, detaches all listeners cleanly, and prevents double-prompting on user decline. |
+| `loop-cip103-adapter.test.ts` (4) | Native Loop capability declaration, CIP-0103 connection, unrestricted `ledger-end` forwarding, and one-step `prepareExecuteAndWait`. | Replaces PartyLayer's legacy Loop adapter without adding a wallet entry, omits unsupported separate signing, and returns only a real executed update. |
 | `party-layer-provider.test.ts` (2) | Object with `request`, `on`, and `removeListener`. Listing wallets on the beta channel. | Accepts a CIP-0103 provider surface and rejects incomplete objects. Announced extensions stay in the list beside the beta catalog. |
 | `saved-wallets.test.ts` (4) | Store and reload a wallet URL, replace the same URL including a trailing slash, drop invalid entries and broken JSON, remove one saved wallet. | User-added wallets persist in `localStorage` under `traffic-purchase-saved-wallets` and can be removed without affecting the rest of the list. |
 

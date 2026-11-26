@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { PartyLayerLocaleProvider, PartyLayerProvider, ThemeProvider } from "@partylayer/react";
 import { createPartyLayer, type PartyLayerClient } from "@partylayer/sdk";
+import { LoopCip103Adapter } from "@/lib/dapp/loop-cip103-adapter";
 import { includeAnnouncedWallets } from "@/lib/dapp/party-layer-provider";
 
 export function PartyLayerShell({
@@ -17,6 +18,7 @@ export function PartyLayerShell({
       deferInitialization: true,
       network: "devnet",
       channel: "beta",
+      additionalAdapters: [new LoopCip103Adapter()],
       app: {
         name: "Traffic purchase",
         origin: typeof window !== "undefined" ? window.location.origin : undefined,

@@ -79,6 +79,43 @@ test("submitPrepareExecute uses prepareExecuteAndWait for sync-capable providers
   }
 });
 
+test("txChanged finishes the purchase while prepareExecuteAndWait is still open", async () => {
+  const listeners = new Set<(event: TxChangedEvent) => void>();
+  let prepareCalls = 0;
+  const provider: SubmitProvider = {
+    on(_event, listener) {
+      listeners.add(listener);
+    },
+    removeListener(_event, listener) {
+      listeners.delete(listener);
+    },
+    async request() {
+      prepareCalls += 1;
+      return null;
+    },
+  };
+
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    prepareExecuteAndWait: () =>
+      new Promise<PrepareExecuteAndWaitResult>(() => {
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              status: "executed",
+              commandId: "cmd-1",
+              payload: { updateId: "1220signed", completionOffset: 4 },
+            } as TxChangedEvent);
+          }
+        });
+      }),
+    provider,
+  });
+
+  assert.deepEqual(result, { ok: true, commandId: "cmd-1", updateId: "1220signed" });
+  assert.equal(prepareCalls, 0);
+  assert.equal(listeners.size, 0);
+});
+
 test("submitPrepareExecute falls back to prepareExecute + txChanged when prepareExecuteAndWait throws", async () => {
   const { provider, listenerCount } = createMockProvider(async (_params, emit) => {
     emit({

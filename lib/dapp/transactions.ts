@@ -40,6 +40,17 @@ function updateIdFrom(tx: TxChangedEvent) {
   return tx.payload && "updateId" in tx.payload ? String(tx.payload.updateId) : undefined;
 }
 
+function txResult(tx: TxChangedEvent, commandId: string): SubmitResult {
+  if (tx.status === "executed") {
+    const updateId = updateIdFrom(tx);
+    const reportedCommandId = tx.commandId || commandId;
+    dappLog("purchase", "txChanged executed", { commandId: reportedCommandId, updateId });
+    return { ok: true, commandId: reportedCommandId, updateId };
+  }
+  dappWarn("purchase", "txChanged failed", { commandId, status: tx.status });
+  return { ok: false, commandId, message: messageForTxFailure("Transaction failed") };
+}
+
 function failure(commandId: string, error: unknown): Extract<SubmitResult, { ok: false }> {
   const timedOut = error instanceof Error && error.message === TIMEOUT_MESSAGE;
   const message = timedOut ? error.message : messageForProviderError(error);
@@ -97,9 +108,36 @@ export async function submitPrepareExecute(
 
   try {
     if (isSyncCapable(status) && options?.prepareExecuteAndWait) {
-      try {
-        const waited = await options.prepareExecuteAndWait(request);
-        const tx = waited.tx;
+      const provider = options.provider ?? null;
+      const watched = provider
+        ? watchTransaction(provider, commandId, options.timeoutMs ?? 600_000)
+        : null;
+      const pendingWait = options.prepareExecuteAndWait(request).then(
+        (waited) => ({ kind: "rpc" as const, waited }),
+        (error: unknown) => ({ kind: "rpc-error" as const, error }),
+      );
+      const pendingEvent = watched
+        ? watched.promise.then(
+            (tx) => ({ kind: "event" as const, tx }),
+            (error: unknown) => ({ kind: "event-error" as const, error }),
+          )
+        : null;
+      const outcome = pendingEvent ? await Promise.race([pendingWait, pendingEvent]) : await pendingWait;
+
+      if (outcome.kind === "event") {
+        pendingWait.then(
+          () => {},
+          () => {},
+        );
+        return txResult(outcome.tx, commandId);
+      }
+      if (outcome.kind === "event-error") {
+        return failure(commandId, outcome.error);
+      }
+      if (outcome.kind === "rpc" && outcome.waited?.tx) {
+        watched?.promise.catch(() => {});
+        watched?.cancel();
+        const tx = outcome.waited.tx;
         if (tx.status === "executed") {
           const updateId = updateIdFrom(tx);
           dappLog("purchase", "prepareExecuteAndWait executed", { commandId, updateId });
@@ -114,9 +152,20 @@ export async function submitPrepareExecute(
           commandId,
           message: messageForTxFailure(tx.status === "failed" ? "Transaction failed" : undefined),
         };
-      } catch {
-        dappLog("purchase", "prepareExecuteAndWait unavailable; using txChanged");
       }
+
+      watched?.promise.catch(() => {});
+      watched?.cancel();
+      if (outcome.kind === "rpc-error") {
+        const code = rpcCodeFromProviderError(outcome.error);
+        if (
+          code === errorCodes.provider.userRejectedRequest ||
+          code === errorCodes.rpc.transactionRejected
+        ) {
+          return failure(commandId, outcome.error);
+        }
+      }
+      dappLog("purchase", "prepareExecuteAndWait unavailable; using txChanged");
     }
 
     const provider = options?.provider;
@@ -134,15 +183,7 @@ export async function submitPrepareExecute(
     } finally {
       restoreCapture();
     }
-    const finalTx = await watched.promise;
-    if (finalTx.status === "executed") {
-      const updateId = updateIdFrom(finalTx);
-      const reportedCommandId = finalTx.commandId || commandId;
-      dappLog("purchase", "txChanged executed", { commandId: reportedCommandId, updateId });
-      return { ok: true, commandId: reportedCommandId, updateId };
-    }
-    dappWarn("purchase", "txChanged failed", { commandId, status: finalTx.status });
-    return { ok: false, commandId, message: messageForTxFailure("Transaction failed") };
+    return txResult(await watched.promise, commandId);
   } catch (error) {
     const result = failure(commandId, error);
     dappWarn("purchase", "prepareExecute error", { commandId, message: result.message });
