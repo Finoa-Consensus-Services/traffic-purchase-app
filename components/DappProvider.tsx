@@ -22,6 +22,7 @@ import type {
   LedgerApiParams,
   LedgerApiResult,
   ListAccountsResult,
+  PrepareExecuteParams,
   StatusEvent,
   Wallet,
 } from "@canton-network/dapp-sdk";
@@ -62,9 +63,14 @@ export type ConnectWalletResult = {
   approvalUrl?: string;
 };
 
+export type PartyLayerSubmit = (
+  params: PrepareExecuteParams,
+) => Promise<{ updateId?: string; commandId?: string; transactionHash?: string } | null>;
+
 export type PurchaseSession = {
   prepareExecuteAndWait: DappClient["prepareExecuteAndWait"];
   provider: SessionProvider;
+  partyLayerSubmit?: PartyLayerSubmit;
 };
 
 type DappContextValue = {
@@ -83,6 +89,7 @@ type DappContextValue = {
   adoptPartyLayerProvider: (provider: unknown) => Promise<void>;
   releasePartyLayerProvider: () => void;
   registerPartyLayerDisconnect: (disconnect: (() => Promise<void>) | null) => void;
+  registerPartyLayerSubmit: (submit: PartyLayerSubmit | null) => void;
   refreshWallets: () => Promise<void>;
   connectWallet: (providerId: string) => Promise<ConnectWalletResult>;
   disconnectWallet: () => Promise<void>;
@@ -159,6 +166,7 @@ export function DappProvider({
   const externalProviderRef = useRef<SessionProvider | null>(null);
   const adoptGenerationRef = useRef(0);
   const partyLayerDisconnectRef = useRef<(() => Promise<void>) | null>(null);
+  const partyLayerSubmitRef = useRef<PartyLayerSubmit | null>(null);
 
   const syncWallets = useCallback(() => {
     const discovery = discoveryRef.current;
@@ -528,6 +536,7 @@ export function DappProvider({
       return {
         prepareExecuteAndWait: (params) => client.prepareExecuteAndWait(params),
         provider: externalProviderRef.current,
+        partyLayerSubmit: partyLayerSubmitRef.current ?? undefined,
       };
     }
     const session = discoveryRef.current?.getActiveSession();
@@ -577,6 +586,10 @@ export function DappProvider({
     partyLayerDisconnectRef.current = disconnect;
   }, []);
 
+  const registerPartyLayerSubmit = useCallback((submit: PartyLayerSubmit | null) => {
+    partyLayerSubmitRef.current = submit;
+  }, []);
+
   const ledgerApi = useCallback(async (params: LedgerApiParams) => {
     const client = clientRef.current;
     if (!client) {
@@ -605,6 +618,7 @@ export function DappProvider({
       adoptPartyLayerProvider,
       releasePartyLayerProvider,
       registerPartyLayerDisconnect,
+      registerPartyLayerSubmit,
       refreshWallets,
       connectWallet,
       disconnectWallet,
@@ -630,6 +644,7 @@ export function DappProvider({
       adoptPartyLayerProvider,
       releasePartyLayerProvider,
       registerPartyLayerDisconnect,
+      registerPartyLayerSubmit,
       refreshWallets,
       connectWallet,
       disconnectWallet,

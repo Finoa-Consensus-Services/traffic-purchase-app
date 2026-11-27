@@ -138,6 +138,46 @@ test("prepareExecuteAndWait accepts Vala's update id when status is omitted", as
   });
 });
 
+test("PartyLayer receipt finishes the purchase without a second wallet request", async () => {
+  let walletRequests = 0;
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    partyLayerSubmit: async () => {
+      walletRequests += 1;
+      return {
+        updateId:
+          "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+      };
+    },
+    prepareExecuteAndWait: async () => {
+      walletRequests += 1;
+      throw new Error("prepareExecuteAndWait should not run for PartyLayer");
+    },
+  });
+
+  assert.equal(walletRequests, 1);
+  assert.deepEqual(result, {
+    ok: true,
+    commandId: "cmd-1",
+    updateId:
+      "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+  });
+});
+
+test("Loop Data remains the fallback when PartyLayer does not report an update", async () => {
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    partyLayerSubmit: () => new Promise(() => {}),
+    confirmExecuted: async () =>
+      "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    commandId: "cmd-1",
+    updateId:
+      "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+  });
+});
+
 test("ledger confirmation finishes while the wallet callback is still open", async () => {
   const { provider, listenerCount } = createMockProvider(async () => {});
   const result = await submitPrepareExecute(baseParams, browserStatus, {

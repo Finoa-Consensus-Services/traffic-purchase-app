@@ -12,6 +12,7 @@ import {
   messageForTxFailure,
   rpcCodeFromProviderError,
 } from "@/lib/dapp/errors";
+import { updateIdFromPartyLayerReceipt } from "@/lib/dapp/party-layer-receipt";
 import { installPopupCapture } from "@/lib/dapp/popup-capture";
 import { TIMEOUT_MESSAGE, watchTransaction, type TxListener } from "@/lib/dapp/tx-match";
 import { errorCodes } from "@canton-network/core-rpc-errors";
@@ -24,10 +25,17 @@ export type SubmitProvider = TxListener<TxChangedEvent> & {
   request(args: { method: "prepareExecute"; params: PrepareExecuteParams }): Promise<unknown>;
 };
 
+export type PartyLayerSubmitReceipt = {
+  updateId?: string;
+  commandId?: string;
+  transactionHash?: string;
+};
+
 type SubmitOptions = {
   timeoutMs?: number;
   onApprovalUrl?: (url: string) => void;
   confirmExecuted?: (commandId: string, signal: AbortSignal) => Promise<string>;
+  partyLayerSubmit?: (params: PrepareExecuteParams) => Promise<PartyLayerSubmitReceipt | null>;
   prepareExecuteAndWait?: (params: PrepareExecuteParams) => Promise<PrepareExecuteAndWaitResult>;
   provider?: SubmitProvider | null;
 };
@@ -100,6 +108,102 @@ export async function submitPrepareExecuteWithLegacyFallback(
   return { ...legacyOutcome, usedPath: "legacy-fallback" };
 }
 
+type Raced =
+  | { kind: "confirmation"; updateId: string }
+  | { kind: "event"; tx: TxChangedEvent }
+  | { kind: "event-error"; error: unknown }
+  | { kind: "partylayer"; updateId: string }
+  | { kind: "rpc-error"; error: unknown };
+
+function stopped(): Promise<never> {
+  return new Promise(() => {});
+}
+
+async function finishPartyLayerSubmit(
+  request: PrepareExecuteParams,
+  commandId: string,
+  options: SubmitOptions,
+  pendingConfirmation: Promise<{ kind: "confirmation"; updateId: string }> | null,
+): Promise<SubmitResult> {
+  const submit = options.partyLayerSubmit;
+  if (!submit) {
+    throw new Error("Connect a wallet before submitting a transaction.");
+  }
+  const provider = options.provider ?? null;
+  const watched = provider
+    ? watchTransaction(provider, commandId, options.timeoutMs ?? 600_000)
+    : null;
+  const pendingSubmit = submit(request).then(
+    (receipt) => {
+      const updateId = updateIdFromPartyLayerReceipt(receipt);
+      return updateId ? ({ kind: "partylayer", updateId } as const) : stopped();
+    },
+    (error: unknown) => ({ kind: "rpc-error", error }) as const,
+  );
+  const pendingEvent = watched
+    ? watched.promise.then(
+        (tx) => ({ kind: "event", tx }) as const,
+        (error: unknown) => ({ kind: "event-error", error }) as const,
+      )
+    : null;
+  const contenders: Promise<Raced>[] = [pendingSubmit];
+  if (pendingEvent) contenders.push(pendingEvent);
+  if (pendingConfirmation) contenders.push(pendingConfirmation);
+
+  const finishWatch = () => {
+    watched?.promise.catch(() => {});
+    watched?.cancel();
+  };
+  const outcome = await Promise.race(contenders);
+  if (outcome.kind === "confirmation") {
+    finishWatch();
+    pendingSubmit.then(() => {}, () => {});
+    return { ok: true, commandId, updateId: outcome.updateId };
+  }
+  if (outcome.kind === "event") {
+    pendingSubmit.then(() => {}, () => {});
+    return txResult(outcome.tx, commandId);
+  }
+  if (outcome.kind === "event-error") {
+    pendingSubmit.then(() => {}, () => {});
+    return failure(commandId, outcome.error);
+  }
+  if (outcome.kind === "partylayer") {
+    finishWatch();
+    dappLog("purchase", "PartyLayer reported the ledger update", {
+      commandId,
+      updateId: outcome.updateId,
+    });
+    return { ok: true, commandId, updateId: outcome.updateId };
+  }
+
+  const code = rpcCodeFromProviderError(outcome.error);
+  if (
+    code === errorCodes.provider.userRejectedRequest ||
+    code === errorCodes.rpc.transactionRejected
+  ) {
+    finishWatch();
+    return failure(commandId, outcome.error);
+  }
+  dappWarn("purchase", "PartyLayer submit did not return an update id", {
+    commandId,
+    message: messageForProviderError(outcome.error),
+  });
+  if (!pendingEvent && !pendingConfirmation) {
+    finishWatch();
+    return failure(commandId, outcome.error);
+  }
+  const later = await Promise.race([
+    ...(pendingEvent ? [pendingEvent] : []),
+    ...(pendingConfirmation ? [pendingConfirmation] : []),
+  ]);
+  finishWatch();
+  pendingSubmit.then(() => {}, () => {});
+  if (later.kind === "confirmation") return { ok: true, commandId, updateId: later.updateId };
+  if (later.kind === "event") return txResult(later.tx, commandId);
+  return failure(commandId, later.error);
+}
+
 export async function submitPrepareExecute(
   params: PrepareExecuteParams,
   status: StatusEvent | null,
@@ -120,13 +224,24 @@ export async function submitPrepareExecute(
 
   const confirmationController = new AbortController();
   const pendingConfirmation = options?.confirmExecuted
-    ? options.confirmExecuted(commandId, confirmationController.signal).then((updateId) => ({
-        kind: "confirmation" as const,
-        updateId,
-      }))
+    ? options.confirmExecuted(commandId, confirmationController.signal).then(
+        (updateId) => ({
+          kind: "confirmation" as const,
+          updateId,
+        }),
+        () => stopped(),
+      )
     : null;
 
   try {
+    if (options?.partyLayerSubmit) {
+      return await finishPartyLayerSubmit(
+        request,
+        commandId,
+        options,
+        pendingConfirmation,
+      );
+    }
     if (isSyncCapable(status) && options?.prepareExecuteAndWait) {
       const provider = options.provider ?? null;
       const watched = provider

@@ -78,20 +78,27 @@ const waitForNextAttempt = (
   });
 
 /**
- * Confirms a Token Standard purchase independently from the wallet callback.
- * The server accepts only a newer Loop Data transaction matching every reviewed
- * transfer field, including the consumed input contracts.
+ * Confirms a Token Standard purchase when PartyLayer and the wallet callback
+ * do not report the ledger update. The first lookup waits so those responses
+ * stay the primary result.
  */
+/** Give PartyLayer and the wallet time to report the update before asking Loop Data. */
+export const PURCHASE_CONFIRMATION_FALLBACK_DELAY_MS = 8_000;
+
 export const waitForPurchaseConfirmation = async (
   expected: PurchaseConfirmationRequest,
   options: {
     signal: AbortSignal;
     delayMs?: number;
+    initialDelayMs?: number;
     fetch?: typeof fetch;
   },
 ): Promise<string> => {
   const fetcher = options.fetch ?? fetch;
   const delayMs = options.delayMs ?? 1_500;
+  if (options.initialDelayMs && options.initialDelayMs > 0) {
+    await waitForNextAttempt(options.initialDelayMs, options.signal);
+  }
 
   while (!options.signal.aborted) {
     try {

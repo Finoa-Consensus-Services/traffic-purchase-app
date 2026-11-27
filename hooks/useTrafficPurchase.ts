@@ -30,6 +30,7 @@ import {
 } from "@/lib/dapp/transactions";
 import {
   purchaseConfirmationFromPrepare,
+  PURCHASE_CONFIRMATION_FALLBACK_DELAY_MS,
   waitForPurchaseConfirmation,
 } from "@/lib/purchase/wait-for-purchase-confirmation";
 import { useDappContext } from "@/components/DappProvider";
@@ -392,8 +393,12 @@ export function useTrafficPurchase({
         onApprovalUrl: (url: string) => setApprovalUrl(url),
         confirmExecuted: confirmationRequest
           ? (_commandId: string, signal: AbortSignal) =>
-              waitForPurchaseConfirmation(confirmationRequest, { signal })
+              waitForPurchaseConfirmation(confirmationRequest, {
+                signal,
+                initialDelayMs: PURCHASE_CONFIRMATION_FALLBACK_DELAY_MS,
+              })
           : undefined,
+        partyLayerSubmit: session?.partyLayerSubmit,
         prepareExecuteAndWait: session?.prepareExecuteAndWait,
         provider: (session?.provider as SubmitProvider | undefined) ?? null,
       };

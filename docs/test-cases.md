@@ -6,7 +6,7 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 
 | Suite | Command | Runner | Files | Test Cases | Runs in CI |
 | --- | --- | --- | ---: | ---: | --- |
-| Unit & API route tests | `npm test` | `tsx --test` (`node:test`) | 54 | 184 | Yes (every push / PR) |
+| Unit & API route tests | `npm test` | `tsx --test` (`node:test`) | 55 | 189 | Yes (every push / PR) |
 | Browser E2E (mocked wallet & APIs) | `npm run test:e2e` | Playwright (`chromium`) | 1 | 30 | Yes (every push / PR) |
 
 ---
@@ -57,16 +57,17 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 
 ---
 
-## 2. Unit Tests — Wallet / CIP-0103 dApp Layer (`lib/dapp/*.test.ts` — 31 cases)
+## 2. Unit Tests — Wallet / CIP-0103 dApp Layer (`lib/dapp/*.test.ts` — 36 cases)
 
 | File | Scenarios Covered | Expected Result |
 | --- | --- | --- |
 | `errors.test.ts` (4) | CIP-0103 provider errors (`userRejectedRequest`, `unauthorized`, `unsupportedMethod`, `disconnected`, `chainDisconnected`), RPC errors (`transactionRejected`, `resourceUnavailable`), `LOCAL_VERDICT_INACTIVE_CONTRACTS`, non-object errors, `messageForTxFailure`, `isUnsupportedWalletOperation` code + keyword checks. | Returns user-friendly copy for every known error code/pattern; identifies unsupported operations by code or message (`unknown choice`, `transferfactory`, `not support`) without false positives on user rejection. |
 | `normalize.test.ts` (1) | Single wallet, array, `null`/`undefined`, primary vs non-primary selection. | Normalizes to array (`[]` for nullish) and picks `primary: true`, falling back to first entry or `null`. |
 | `tx-match.test.ts` (7) | Exact `commandId` match, single mismatched `executed` event, multiple ambiguous `executed` events, mismatched `failed` event, non-terminal events (`pending`), `watchTransaction` listener attachment/timeout/cancel cleanup, blocked popup URL capture (`trackPopupOpen`). | Exact `commandId` wins; single mismatched `executed` matches while mismatched `failed` and ambiguous pairs return `null`; timeout and `cancel()` both reject and detach listeners; blocked popups emit the assigned approval URL. |
-| `transactions.test.ts` (8) | `submitPrepareExecute` sync-capable (`browser`) `prepareExecuteAndWait` success/failure/throw fallback to `prepareExecute` + `txChanged`; a Vala result that carries an update id without `status`; `txChanged` or an independently confirmed ledger result arriving while the wallet callback remains open; `remote` provider skipping sync path; `prepareExecute` rejection cleaning up listeners with no unhandled promise rejection; timeout returning `timedOut: true`; missing provider error; `submitPrepareExecuteWithLegacyFallback` retrying legacy only on unsupported errors (never on user rejection). | Returns `{ ok: true, commandId, updateId }` on execution or exact ledger confirmation, `{ ok: false, ... }` with proper `code`/`timedOut` on failure, detaches all listeners cleanly, and prevents double-prompting on user decline. |
+| `transactions.test.ts` (10) | `submitPrepareExecute` sync-capable (`browser`) `prepareExecuteAndWait` success/failure/throw fallback to `prepareExecute` + `txChanged`; a Vala result that carries an update id without `status`; PartyLayer's receipt finishing the purchase without a second wallet request; Loop Data remaining available when PartyLayer does not report an update; `txChanged` or an independently confirmed ledger result arriving while the wallet callback remains open; `remote` provider skipping sync path; `prepareExecute` rejection cleaning up listeners with no unhandled promise rejection; timeout returning `timedOut: true`; missing provider error; `submitPrepareExecuteWithLegacyFallback` retrying legacy only on unsupported errors (never on user rejection). | Returns `{ ok: true, commandId, updateId }` from the PartyLayer receipt first, then from the wallet callback, and from Loop Data only when neither reports the update. |
 | `loop-cip103-adapter.test.ts` (5) | Native Loop capability declaration, CIP-0103 connection, Loop `canton:devnet` mapped to PartyLayer `canton:da-devnet`, unrestricted `ledger-end` forwarding, and one-step `prepareExecuteAndWait`. | Replaces PartyLayer's legacy Loop adapter without adding a wallet entry, omits unsupported separate signing, accepts Loop's Devnet id, and returns only a real executed update. |
 | `party-layer-provider.test.ts` (2) | Object with `request`, `on`, and `removeListener`. Listing wallets on the beta channel. | Accepts a CIP-0103 provider surface and rejects incomplete objects. Announced extensions stay in the list beside the beta catalog. |
+| `party-layer-receipt.test.ts` (3) | A submitted PartyLayer receipt that carries an update id, a Vala result nested under `tx.payload`, and a rejected status. | Reads the ledger update from PartyLayer's own receipt and ignores a rejected status. |
 | `saved-wallets.test.ts` (4) | Store and reload a wallet URL, replace the same URL including a trailing slash, drop invalid entries and broken JSON, remove one saved wallet. | User-added wallets persist in `localStorage` under `traffic-purchase-saved-wallets` and can be removed without affecting the rest of the list. |
 
 ---
