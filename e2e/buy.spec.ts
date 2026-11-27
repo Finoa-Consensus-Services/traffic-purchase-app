@@ -94,7 +94,7 @@ test("approved purchase credits traffic", async ({ page }) => {
   await expect(main(page).getByText("You send")).toBeVisible();
   await expect(main(page).getByText("From wallet")).toBeVisible();
   await expect(main(page).getByText("To validator")).toBeVisible();
-  await expect(main(page).getByText("alice::1220…34ef")).toBeVisible();
+  await expect(main(page).getByText("alice:…34ef")).toBeVisible();
   await expect(main(page).getByText(MEMBER_ID).first()).toBeVisible();
   await expect(main(page).getByText("Network", { exact: true })).toHaveCount(0);
   await expect(main(page).getByText(DOMAIN_ID)).toHaveCount(0);
