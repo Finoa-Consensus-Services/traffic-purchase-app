@@ -129,9 +129,11 @@ function formatTrafficMb(bytes: number) {
 }
 
 function shortParty(account: string) {
-  const [prefix, id] = account.split("::");
-  if (!id || id.length <= 8) return account;
-  return `${prefix}::${id.slice(0, 4)}…${id.slice(-4)}`;
+  const value = account.trim();
+  const start = 6;
+  const end = 4;
+  if (value.length <= start + end + 1) return value;
+  return `${value.slice(0, start)}…${value.slice(-end)}`;
 }
 
 /** Drop a trailing party hash so the review can show the readable validator name. */
@@ -534,19 +536,23 @@ export function BuyWizard() {
         Skip to content
       </a>
       <header className="sticky top-[calc(var(--banner-h,0px)+1rem)] z-30 mx-auto flex w-full max-w-2xl items-center justify-between gap-3 rounded-full border border-white/80 bg-white/80 py-3 pr-3 pl-5 bar-shadow backdrop-blur-md">
-        <Link href="/" className="font-bold tracking-tight text-primary no-underline">
+        <Link href="/" className="shrink-0 font-bold tracking-tight text-primary no-underline">
           Validator Traffic
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {connected && purchase.totalCc !== null ? (
-            <p className="text-sm font-bold tracking-tight text-primary">{formatCc(purchase.totalCc)}</p>
+            <p className="shrink-0 text-sm font-bold tracking-tight text-primary">{formatCc(purchase.totalCc)}</p>
           ) : null}
           <button
             type="button"
-            className={`inline-flex h-12 max-w-48 items-center truncate rounded-full px-4 text-sm font-bold tracking-tight ${connected ? "bg-primary text-white" : "border border-line bg-surface text-primary"}`}
+            className={`inline-flex h-12 min-w-0 max-w-full shrink items-center overflow-hidden rounded-full px-4 text-sm font-bold tracking-tight ${connected ? "bg-primary text-white" : "border border-line bg-surface text-primary"}`}
+            aria-label={connected && partyId ? partyId : "Connect wallet"}
+            title={connected && partyId ? partyId : undefined}
             onClick={() => setWalletOpen(true)}
           >
-            {connected && partyId ? shortParty(partyId) : "Connect wallet"}
+            <span className="truncate">
+              {connected && partyId ? shortParty(partyId) : "Connect wallet"}
+            </span>
           </button>
         </div>
       </header>

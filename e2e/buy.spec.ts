@@ -36,9 +36,19 @@ async function findValidator(page: Page, query: string) {
   await page.getByRole("button", { name: "Find" }).click();
 }
 
+async function openWalletDialog(page: Page) {
+  await page.locator("header").getByRole("button", { name: "Connect wallet", exact: true }).click();
+  return page.getByRole("dialog", { name: "Connect wallet", exact: true });
+}
+
+async function openLegacyWallets(page: Page) {
+  const dialog = await openWalletDialog(page);
+  await dialog.getByText("Other connection methods", { exact: true }).click();
+  return dialog;
+}
+
 async function connectWallet(page: Page) {
-  await page.locator("header").getByRole("button", { name: "Connect wallet" }).click();
-  const dialog = page.getByRole("dialog", { name: "Connect wallet" });
+  const dialog = await openLegacyWallets(page);
   const wallet = dialog.getByRole("button", { name: "Playwright wallet" });
   await expect(wallet).toBeEnabled();
   await expect(dialog.getByLabel("Wallet API URL")).toHaveCount(0);
@@ -46,6 +56,15 @@ async function connectWallet(page: Page) {
   await expect(dialog.getByLabel("Wallet API URL")).toBeVisible();
   await wallet.click();
   await expect(page.locator("header").getByRole("button", { name: /alice::1220/ })).toBeVisible();
+}
+
+async function confirmLegacyPurchase(page: Page) {
+  await page.getByRole("button", { name: "Review" }).click();
+  await page.getByRole("button", { name: "Purchase path" }).click();
+  await page.getByRole("option", { name: "Legacy BuyMemberTraffic" }).click();
+  await page.getByRole("checkbox", { name: "I agree to the Terms" }).check();
+  await page.getByRole("checkbox", { name: "I may buy traffic in my jurisdiction." }).check();
+  await page.getByRole("button", { name: "Confirm in wallet" }).click();
 }
 
 function main(page: Page) {
@@ -75,7 +94,7 @@ test("approved purchase credits traffic", async ({ page }) => {
   await expect(main(page).getByText("You send")).toBeVisible();
   await expect(main(page).getByText("From wallet")).toBeVisible();
   await expect(main(page).getByText("To validator")).toBeVisible();
-  await expect(main(page).getByText("alice::1220…34ef")).toBeVisible();
+  await expect(main(page).getByText("alice:…34ef")).toBeVisible();
   await expect(main(page).getByText(MEMBER_ID).first()).toBeVisible();
   await expect(main(page).getByText("Network", { exact: true })).toHaveCount(0);
   await expect(main(page).getByText(DOMAIN_ID)).toHaveCount(0);
@@ -114,16 +133,61 @@ test("rejected signature returns to a declined screen", async ({ page }) => {
   });
   await quoteOneMegabyte(page);
   await connectWallet(page);
-  await page.getByRole("button", { name: "Review" }).click();
-  await page.getByRole("button", { name: "Purchase path" }).click();
-  await page.getByRole("option", { name: "Legacy BuyMemberTraffic" }).click();
-  await page.getByRole("checkbox", { name: "I agree to the Terms" }).check();
-  await page.getByRole("checkbox", { name: "I may buy traffic in my jurisdiction." }).check();
-  await page.getByRole("button", { name: "Confirm in wallet" }).click();
+  await confirmLegacyPurchase(page);
   await expect(page.getByRole("heading", { name: "Not approved" })).toBeVisible();
   await expect(main(page).getByText("Transaction failed")).toBeVisible();
   await page.getByRole("button", { name: "Back to review" }).click();
   await expect(page.getByRole("heading", { name: "Review" })).toBeVisible();
+});
+
+test("PartyLayer connect buys traffic and keeps the current wallet list collapsed", async ({ page }) => {
+  await openBuy(page, [memberFixture(MEMBER_ID)]);
+  await quoteOneMegabyte(page);
+  const dialog = await openWalletDialog(page);
+  await expect(dialog.getByRole("button", { name: "Playwright wallet" })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Connect Wallet", exact: true }).click();
+  const partyLayer = page.getByRole("dialog", { name: "Connect Wallet", exact: true });
+  await partyLayer.getByRole("button", { name: "Playwright wallet" }).click();
+  await expect(page.locator("header").getByRole("button", { name: /alice::1220/ })).toBeVisible();
+  await confirmLegacyPurchase(page);
+  await expect(page.getByRole("heading", { name: "Traffic credited" })).toBeVisible();
+});
+
+test("a declined wallet request stays on the declined screen", async ({ page }) => {
+  await openBuy(page, [memberFixture(MEMBER_ID)], {
+    decision: "user-rejected",
+    balanceCc: 10_000,
+  });
+  await quoteOneMegabyte(page);
+  await connectWallet(page);
+  await confirmLegacyPurchase(page);
+  await expect(page.getByRole("heading", { name: "Not approved" })).toBeVisible();
+  await expect(main(page).getByText("You declined the request in your wallet.")).toBeVisible();
+});
+
+test("an unsupported wallet method stays on the declined screen", async ({ page }) => {
+  await openBuy(page, [memberFixture(MEMBER_ID)], {
+    decision: "unsupported",
+    balanceCc: 10_000,
+  });
+  await quoteOneMegabyte(page);
+  await connectWallet(page);
+  await confirmLegacyPurchase(page);
+  await expect(page.getByRole("heading", { name: "Not approved" })).toBeVisible();
+  await expect(main(page).getByText("This wallet does not support that operation.")).toBeVisible();
+});
+
+test("disconnect clears the connected party", async ({ page }) => {
+  await openBuy(page, [memberFixture(MEMBER_ID)]);
+  await quoteOneMegabyte(page);
+  await connectWallet(page);
+  await page.locator("header").getByRole("button", { name: /alice::1220/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Wallet", exact: true });
+  await dialog.getByRole("button", { name: "Disconnect" }).click();
+  await expect(page.locator("header").getByRole("button", { name: "Connect wallet", exact: true })).toBeVisible();
+  const reconnect = page.getByRole("dialog", { name: "Connect wallet", exact: true });
+  await expect(reconnect.getByRole("button", { name: "Connect Wallet", exact: true })).toBeVisible();
+  await expect(reconnect.getByRole("button", { name: "Playwright wallet" })).toHaveCount(0);
 });
 
 test("the countdown blocks buying until the next CC price and keeps the traffic amount", async ({ page }) => {
@@ -415,6 +479,38 @@ test("a token-standard purchase submits TransferFactory_Transfer", async ({ page
   expect(payload).not.toContain("AmuletRules_BuyMemberTraffic");
 });
 
+test("a token-standard purchase completes when the wallet callback hangs", async ({
+  page,
+}) => {
+  await openBuy(
+    page,
+    [memberFixture(MEMBER_ID)],
+    { ...approvedWallet, decision: "hang" },
+    {
+      path: "token-standard",
+      confirmationUpdateId: UPDATE_ID,
+    },
+  );
+  await quoteOneMegabyte(page);
+  await connectWallet(page);
+  await page.getByRole("button", { name: "Review" }).click();
+  await page.getByRole("button", { name: "Purchase path" }).click();
+  await page.getByRole("option", { name: "Token transfer" }).click();
+  await page.getByRole("checkbox", { name: "I agree to the Terms" }).check();
+  await page.getByRole("checkbox", { name: "I may buy traffic in my jurisdiction." }).check();
+  await page.getByRole("button", { name: "Confirm in wallet" }).click();
+
+  await expect(page.getByRole("heading", { name: "Traffic credited" })).toBeVisible();
+  await expect(main(page).getByRole("link", { name: UPDATE_ID })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __playwrightLastPrepare?: unknown })
+          .__playwrightLastPrepare,
+    ),
+  ).toBeDefined();
+});
+
 test("a validator with no traffic left cannot continue", async ({ page }) => {
   await openBuy(page, [memberFixture(MEMBER_ID, 0)]);
   await findValidator(page, MEMBER_ID);
@@ -588,8 +684,7 @@ test("disconnected wallet network shows a warning and blocks confirm", async ({ 
 
 test("an added wallet stays after reload and can be removed", async ({ page }) => {
   await openBuy(page, [memberFixture(MEMBER_ID)]);
-  await page.locator("header").getByRole("button", { name: "Connect wallet" }).click();
-  const dialog = page.getByRole("dialog", { name: "Connect wallet" });
+  const dialog = await openLegacyWallets(page);
   await dialog.getByRole("button", { name: "Add a wallet" }).click();
   await dialog.getByLabel("Wallet label").fill("Vala");
   await dialog.getByLabel("Wallet API URL").fill("https://dev.vala-wallet.cc/api/dapp/v1");
@@ -601,8 +696,7 @@ test("an added wallet stays after reload and can be removed", async ({ page }) =
 
   await page.reload();
   await expect(page.getByRole("button", { name: "Find" })).toBeEnabled();
-  await page.locator("header").getByRole("button", { name: "Connect wallet" }).click();
-  const reopened = page.getByRole("dialog", { name: "Connect wallet" });
+  const reopened = await openLegacyWallets(page);
   await expect(reopened.getByRole("button", { name: valaName })).toBeVisible();
   await expect(reopened.getByText("https://dev.vala-wallet.cc/api/dapp/v1")).toBeVisible();
 
@@ -611,8 +705,7 @@ test("an added wallet stays after reload and can be removed", async ({ page }) =
 
   await page.reload();
   await expect(page.getByRole("button", { name: "Find" })).toBeEnabled();
-  await page.locator("header").getByRole("button", { name: "Connect wallet" }).click();
-  const cleared = page.getByRole("dialog", { name: "Connect wallet" });
+  const cleared = await openLegacyWallets(page);
   await expect(cleared.getByRole("button", { name: "Playwright wallet" })).toBeVisible();
   await expect(cleared.getByRole("button", { name: /Vala/ })).toHaveCount(0);
 });

@@ -52,7 +52,13 @@ export default async function RootLayout({
     >
       <body className="font-sans">
         {showDevnetBanner ? <DevnetBanner /> : null}
-        <ClientProviders appOrigin={configuredAppOrigin()}>{children}</ClientProviders>
+        <ClientProviders
+          appOrigin={configuredAppOrigin()}
+          devnet={showDevnetBanner}
+          walletConnectProjectId={process.env["NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID"]?.trim() || undefined}
+        >
+          {children}
+        </ClientProviders>
       </body>
     </html>
   );

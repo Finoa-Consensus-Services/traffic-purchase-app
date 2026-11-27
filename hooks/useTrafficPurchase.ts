@@ -28,6 +28,11 @@ import {
   submitPrepareExecute,
   type SubmitProvider,
 } from "@/lib/dapp/transactions";
+import {
+  purchaseConfirmationFromPrepare,
+  PURCHASE_CONFIRMATION_FALLBACK_DELAY_MS,
+  waitForPurchaseConfirmation,
+} from "@/lib/purchase/wait-for-purchase-confirmation";
 import { useDappContext } from "@/components/DappProvider";
 import { useAmuletBalance } from "@/hooks/useAmuletBalance";
 import { legacyBuyMemberTrafficInputMinCc } from "@/lib/purchase/legacy-input-buffer";
@@ -376,9 +381,24 @@ export function useTrafficPurchase({
           : await buildParams(resolvedPath, purchaseContext, tokenStandard);
 
       const session = purchaseSession();
+      const confirmationRequest =
+        resolvedPath === "token-standard"
+          ? purchaseConfirmationFromPrepare(
+              primaryParams,
+              new Date(Date.now() - 2_000).toISOString(),
+            )
+          : null;
       const submitOptions = {
         timeoutMs: 600_000,
         onApprovalUrl: (url: string) => setApprovalUrl(url),
+        confirmExecuted: confirmationRequest
+          ? (_commandId: string, signal: AbortSignal) =>
+              waitForPurchaseConfirmation(confirmationRequest, {
+                signal,
+                initialDelayMs: PURCHASE_CONFIRMATION_FALLBACK_DELAY_MS,
+              })
+          : undefined,
+        partyLayerSubmit: session?.partyLayerSubmit,
         prepareExecuteAndWait: session?.prepareExecuteAndWait,
         provider: (session?.provider as SubmitProvider | undefined) ?? null,
       };

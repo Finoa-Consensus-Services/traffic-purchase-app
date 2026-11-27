@@ -79,6 +79,121 @@ test("submitPrepareExecute uses prepareExecuteAndWait for sync-capable providers
   }
 });
 
+test("txChanged finishes the purchase while prepareExecuteAndWait is still open", async () => {
+  const listeners = new Set<(event: TxChangedEvent) => void>();
+  let prepareCalls = 0;
+  const provider: SubmitProvider = {
+    on(_event, listener) {
+      listeners.add(listener);
+    },
+    removeListener(_event, listener) {
+      listeners.delete(listener);
+    },
+    async request() {
+      prepareCalls += 1;
+      return null;
+    },
+  };
+
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    prepareExecuteAndWait: () =>
+      new Promise<PrepareExecuteAndWaitResult>(() => {
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              status: "executed",
+              commandId: "cmd-1",
+              payload: { updateId: "1220signed", completionOffset: 4 },
+            } as TxChangedEvent);
+          }
+        });
+      }),
+    provider,
+  });
+
+  assert.deepEqual(result, { ok: true, commandId: "cmd-1", updateId: "1220signed" });
+  assert.equal(prepareCalls, 0);
+  assert.equal(listeners.size, 0);
+});
+
+test("prepareExecuteAndWait accepts Vala's update id when status is omitted", async () => {
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    prepareExecuteAndWait: async () =>
+      ({
+        tx: {
+          commandId: "cmd-1",
+          payload: {
+            updateId:
+              "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+          },
+        },
+      }) as unknown as PrepareExecuteAndWaitResult,
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    commandId: "cmd-1",
+    updateId:
+      "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+  });
+});
+
+test("PartyLayer receipt finishes the purchase without a second wallet request", async () => {
+  let walletRequests = 0;
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    partyLayerSubmit: async () => {
+      walletRequests += 1;
+      return {
+        updateId:
+          "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+      };
+    },
+    prepareExecuteAndWait: async () => {
+      walletRequests += 1;
+      throw new Error("prepareExecuteAndWait should not run for PartyLayer");
+    },
+  });
+
+  assert.equal(walletRequests, 1);
+  assert.deepEqual(result, {
+    ok: true,
+    commandId: "cmd-1",
+    updateId:
+      "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+  });
+});
+
+test("Loop Data remains the fallback when PartyLayer does not report an update", async () => {
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    partyLayerSubmit: () => new Promise(() => {}),
+    confirmExecuted: async () =>
+      "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    commandId: "cmd-1",
+    updateId:
+      "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+  });
+});
+
+test("ledger confirmation finishes while the wallet callback is still open", async () => {
+  const { provider, listenerCount } = createMockProvider(async () => {});
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    confirmExecuted: async () => "1220confirmed",
+    prepareExecuteAndWait: () => new Promise<PrepareExecuteAndWaitResult>(() => {}),
+    provider,
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    commandId: "cmd-1",
+    updateId: "1220confirmed",
+  });
+  assert.equal(listenerCount(), 0);
+});
+
 test("submitPrepareExecute falls back to prepareExecute + txChanged when prepareExecuteAndWait throws", async () => {
   const { provider, listenerCount } = createMockProvider(async (_params, emit) => {
     emit({

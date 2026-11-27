@@ -22,6 +22,7 @@ import type {
   LedgerApiParams,
   LedgerApiResult,
   ListAccountsResult,
+  PrepareExecuteParams,
   StatusEvent,
   Wallet,
 } from "@canton-network/dapp-sdk";
@@ -45,8 +46,10 @@ import {
   localPreviewWalletEnabled,
 } from "@/lib/local-preview";
 import { normalizeWalletList, primaryWallet } from "@/lib/dapp/normalize";
+import { isWalletRpcProvider } from "@/lib/dapp/party-layer-provider";
 
 type SessionProvider = NonNullable<ReturnType<DiscoveryClient["getActiveSession"]>>["provider"];
+type WalletOwner = "discovery" | "partylayer" | "preview" | "handoff" | null;
 
 export type WalletChoice = {
   id: string;
@@ -60,9 +63,14 @@ export type ConnectWalletResult = {
   approvalUrl?: string;
 };
 
+export type PartyLayerSubmit = (
+  params: PrepareExecuteParams,
+) => Promise<{ updateId?: string; commandId?: string; transactionHash?: string } | null>;
+
 export type PurchaseSession = {
   prepareExecuteAndWait: DappClient["prepareExecuteAndWait"];
   provider: SessionProvider;
+  partyLayerSubmit?: PartyLayerSubmit;
 };
 
 type DappContextValue = {
@@ -76,7 +84,12 @@ type DappContextValue = {
   error: string | null;
   busy: boolean;
   previewCc: number | null;
+  partyLayerEnabled: boolean;
   refreshStatus: () => Promise<StatusEvent | null>;
+  adoptPartyLayerProvider: (provider: unknown) => Promise<void>;
+  releasePartyLayerProvider: () => void;
+  registerPartyLayerDisconnect: (disconnect: (() => Promise<void>) | null) => void;
+  registerPartyLayerSubmit: (submit: PartyLayerSubmit | null) => void;
   refreshWallets: () => Promise<void>;
   connectWallet: (providerId: string) => Promise<ConnectWalletResult>;
   disconnectWallet: () => Promise<void>;
@@ -131,9 +144,11 @@ function rememberKernel(info: WalletInfo) {
 export function DappProvider({
   children,
   appOrigin,
+  partyLayerEnabled = false,
 }: {
   children: ReactNode;
   appOrigin: string;
+  partyLayerEnabled?: boolean;
 }) {
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<StatusEvent | null>(null);
@@ -147,6 +162,11 @@ export function DappProvider({
   const discoveryRef = useRef<DiscoveryClient | null>(null);
   const clientRef = useRef<DappClient | null>(null);
   const providerListenersCleanup = useRef<(() => void) | null>(null);
+  const ownerRef = useRef<WalletOwner>(null);
+  const externalProviderRef = useRef<SessionProvider | null>(null);
+  const adoptGenerationRef = useRef(0);
+  const partyLayerDisconnectRef = useRef<(() => Promise<void>) | null>(null);
+  const partyLayerSubmitRef = useRef<PartyLayerSubmit | null>(null);
 
   const syncWallets = useCallback(() => {
     const discovery = discoveryRef.current;
@@ -237,9 +257,12 @@ export function DappProvider({
   const bindSession = useCallback(() => {
     const session = discoveryRef.current?.getActiveSession();
     if (!session) {
-      clientRef.current = null;
+      if (ownerRef.current === "discovery") clientRef.current = null;
       return;
     }
+    if (ownerRef.current === "partylayer" || ownerRef.current === "preview") return;
+    ownerRef.current = "discovery";
+    externalProviderRef.current = null;
     const info = session.adapter.getInfo();
     const target = session.adapter instanceof ExtensionAdapter ? session.adapter.target : undefined;
     clientRef.current = new DappClient(session.provider, {
@@ -336,6 +359,13 @@ export function DappProvider({
           setError("Local wallet is only available in the local preview.");
           return { connected: false };
         }
+        adoptGenerationRef.current += 1;
+        ownerRef.current = "handoff";
+        await partyLayerDisconnectRef.current?.();
+        detachProviderListeners();
+        clientRef.current = null;
+        ownerRef.current = "preview";
+        externalProviderRef.current = null;
         const connection = { isConnected: true, isNetworkConnected: true };
         setError(null);
         setApprovalUrl(null);
@@ -363,6 +393,13 @@ export function DappProvider({
       }
       const discovery = discoveryRef.current;
       if (!discovery) return { connected: false };
+      adoptGenerationRef.current += 1;
+      ownerRef.current = "handoff";
+      await partyLayerDisconnectRef.current?.();
+      if (ownerRef.current === "handoff") ownerRef.current = null;
+      externalProviderRef.current = null;
+      detachProviderListeners();
+      clientRef.current = null;
       setBusy(true);
       setError(null);
       setApprovalUrl(null);
@@ -413,7 +450,7 @@ export function DappProvider({
         setBusy(false);
       }
     },
-    [bindSession, refreshStatus],
+    [bindSession, detachProviderListeners, refreshStatus],
   );
 
   const disconnectWallet = useCallback(async () => {
@@ -421,8 +458,12 @@ export function DappProvider({
     setError(null);
     setApprovalUrl(null);
     setPreviewCc(null);
+    adoptGenerationRef.current += 1;
+    ownerRef.current = null;
+    externalProviderRef.current = null;
     try {
       detachProviderListeners();
+      await partyLayerDisconnectRef.current?.();
       await discoveryRef.current?.disconnect();
       clientRef.current = null;
       setAccounts([]);
@@ -490,13 +531,63 @@ export function DappProvider({
   );
 
   const purchaseSession = useCallback((): PurchaseSession | null => {
-    const session = discoveryRef.current?.getActiveSession();
     const client = clientRef.current;
+    if (ownerRef.current === "partylayer" && externalProviderRef.current && client) {
+      return {
+        prepareExecuteAndWait: (params) => client.prepareExecuteAndWait(params),
+        provider: externalProviderRef.current,
+        partyLayerSubmit: partyLayerSubmitRef.current ?? undefined,
+      };
+    }
+    const session = discoveryRef.current?.getActiveSession();
     if (!session || !client) return null;
     return {
       prepareExecuteAndWait: (params) => client.prepareExecuteAndWait(params),
       provider: session.provider,
     };
+  }, []);
+
+  const adoptPartyLayerProvider = useCallback(
+    async (provider: unknown) => {
+      if (!isWalletRpcProvider(provider)) return;
+      const generation = adoptGenerationRef.current;
+      if (ownerRef.current === "handoff" || ownerRef.current === "preview") return;
+      const discovery = discoveryRef.current;
+      if (discovery?.getActiveSession()) {
+        try {
+          await discovery.disconnect();
+        } catch {
+          // The PartyLayer session still replaces it below.
+        }
+      }
+      if (generation !== adoptGenerationRef.current) return;
+      const sessionProvider = provider as unknown as SessionProvider;
+      ownerRef.current = "partylayer";
+      externalProviderRef.current = sessionProvider;
+      clientRef.current = new DappClient(sessionProvider as never);
+      attachProviderListeners(sessionProvider);
+      await refreshStatus();
+    },
+    [attachProviderListeners, refreshStatus],
+  );
+
+  const releasePartyLayerProvider = useCallback(() => {
+    if (ownerRef.current !== "partylayer") return;
+    ownerRef.current = null;
+    externalProviderRef.current = null;
+    detachProviderListeners();
+    clientRef.current = null;
+    setAccounts([]);
+    setStatus(null);
+    setConnection(null);
+  }, [detachProviderListeners]);
+
+  const registerPartyLayerDisconnect = useCallback((disconnect: (() => Promise<void>) | null) => {
+    partyLayerDisconnectRef.current = disconnect;
+  }, []);
+
+  const registerPartyLayerSubmit = useCallback((submit: PartyLayerSubmit | null) => {
+    partyLayerSubmitRef.current = submit;
   }, []);
 
   const ledgerApi = useCallback(async (params: LedgerApiParams) => {
@@ -522,7 +613,12 @@ export function DappProvider({
       error,
       busy,
       previewCc,
+      partyLayerEnabled,
       refreshStatus,
+      adoptPartyLayerProvider,
+      releasePartyLayerProvider,
+      registerPartyLayerDisconnect,
+      registerPartyLayerSubmit,
       refreshWallets,
       connectWallet,
       disconnectWallet,
@@ -543,7 +639,12 @@ export function DappProvider({
       error,
       busy,
       previewCc,
+      partyLayerEnabled,
       refreshStatus,
+      adoptPartyLayerProvider,
+      releasePartyLayerProvider,
+      registerPartyLayerDisconnect,
+      registerPartyLayerSubmit,
       refreshWallets,
       connectWallet,
       disconnectWallet,

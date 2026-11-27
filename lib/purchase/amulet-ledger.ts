@@ -1,4 +1,5 @@
 import type { LedgerApiParams } from "@canton-network/dapp-sdk";
+import { ledgerOffset, unwrapLedgerPayload } from "@/lib/dapp/ledger-response";
 import { readCoin } from "@/lib/coin";
 
 export type LedgerApiFn = (
@@ -155,14 +156,15 @@ export function amuletAmountFromContract(entry: unknown): number {
 }
 
 function flattenAcsRows(body: unknown): unknown[] {
-  if (Array.isArray(body)) {
-    return body;
+  const payload = unwrapLedgerPayload(body);
+  if (Array.isArray(payload)) {
+    return payload;
   }
-  if (!isRecord(body)) {
+  if (!isRecord(payload)) {
     return [];
   }
   for (const key of ["activeContracts", "active_contracts", "active_contract"]) {
-    const rows = body[key];
+    const rows = payload[key];
     if (Array.isArray(rows)) {
       return rows;
     }
@@ -208,21 +210,12 @@ function parseSpendableAmuletRow(row: unknown): AmuletHolding | null {
 }
 
 async function ledgerEndOffset(ledgerApi: LedgerApiFn): Promise<number> {
-  const result = await ledgerApi({
-    requestMethod: "get",
-    resource: "/v2/state/ledger-end",
-  });
-  const raw = isRecord(result)
-    ? result.offset ??
-      result.Offset ??
-      (isRecord(result.ledgerEnd) ? result.ledgerEnd.offset : null)
-    : null;
-  const parsed =
-    typeof raw === "string" ? parseInt(raw, 10) : typeof raw === "number" ? raw : NaN;
-  if (!Number.isFinite(parsed)) {
-    throw new Error("Ledger did not return an offset");
-  }
-  return parsed;
+  return ledgerOffset(
+    await ledgerApi({
+      requestMethod: "get",
+      resource: "/v2/state/ledger-end",
+    }),
+  );
 }
 
 function interfaceFilterCumulative(interfaceId: string): Record<string, unknown>[] {
