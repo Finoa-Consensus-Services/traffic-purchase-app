@@ -116,6 +116,28 @@ test("txChanged finishes the purchase while prepareExecuteAndWait is still open"
   assert.equal(listeners.size, 0);
 });
 
+test("prepareExecuteAndWait accepts Vala's update id when status is omitted", async () => {
+  const result = await submitPrepareExecute(baseParams, browserStatus, {
+    prepareExecuteAndWait: async () =>
+      ({
+        tx: {
+          commandId: "cmd-1",
+          payload: {
+            updateId:
+              "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+          },
+        },
+      }) as unknown as PrepareExecuteAndWaitResult,
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    commandId: "cmd-1",
+    updateId:
+      "1220fecae432eb780ec8a0c4d9831b72f70906faa4f6c07b57ce3508c4e800be5def",
+  });
+});
+
 test("ledger confirmation finishes while the wallet callback is still open", async () => {
   const { provider, listenerCount } = createMockProvider(async () => {});
   const result = await submitPrepareExecute(baseParams, browserStatus, {

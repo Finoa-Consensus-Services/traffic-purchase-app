@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  purchaseConfirmationFromPrepare,
   waitForPurchaseConfirmation,
   type PurchaseConfirmationRequest,
 } from "@/lib/purchase/wait-for-purchase-confirmation";
@@ -13,6 +14,34 @@ const expected: PurchaseConfirmationRequest = {
   inputHoldingCids: ["00holding"],
   submittedAfter: "2026-11-26T16:57:00.000Z",
 };
+
+test("purchaseConfirmationFromPrepare reads the submitted transfer", () => {
+  assert.deepEqual(
+    purchaseConfirmationFromPrepare(
+      {
+        commands: [
+          {
+            ExerciseCommand: {
+              choice: "TransferFactory_Transfer",
+              choiceArgument: {
+                transfer: {
+                  sender: expected.senderPartyId,
+                  receiver: expected.receiverPartyId,
+                  amount: expected.amount,
+                  inputHoldingCids: expected.inputHoldingCids,
+                  meta: { values: { memo: expected.memo } },
+                },
+              },
+            },
+          },
+        ],
+      },
+      expected.submittedAfter,
+    ),
+    expected,
+  );
+  assert.equal(purchaseConfirmationFromPrepare({ commands: [] }, expected.submittedAfter), null);
+});
 
 test("waitForPurchaseConfirmation returns a confirmed ledger update", async () => {
   const updateId =

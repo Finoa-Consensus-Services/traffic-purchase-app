@@ -28,7 +28,10 @@ import {
   submitPrepareExecute,
   type SubmitProvider,
 } from "@/lib/dapp/transactions";
-import { waitForPurchaseConfirmation } from "@/lib/purchase/wait-for-purchase-confirmation";
+import {
+  purchaseConfirmationFromPrepare,
+  waitForPurchaseConfirmation,
+} from "@/lib/purchase/wait-for-purchase-confirmation";
 import { useDappContext } from "@/components/DappProvider";
 import { useAmuletBalance } from "@/hooks/useAmuletBalance";
 import { legacyBuyMemberTrafficInputMinCc } from "@/lib/purchase/legacy-input-buffer";
@@ -377,18 +380,12 @@ export function useTrafficPurchase({
           : await buildParams(resolvedPath, purchaseContext, tokenStandard);
 
       const session = purchaseSession();
-      const transfer = tokenStandard?.choiceArguments.transfer;
-      const memo = transfer?.meta.values.memo;
       const confirmationRequest =
-        resolvedPath === "token-standard" && transfer && memo
-          ? {
-              senderPartyId: transfer.sender,
-              receiverPartyId: transfer.receiver,
-              amount: transfer.amount,
-              memo,
-              inputHoldingCids: transfer.inputHoldingCids,
-              submittedAfter: new Date(Date.now() - 2_000).toISOString(),
-            }
+        resolvedPath === "token-standard"
+          ? purchaseConfirmationFromPrepare(
+              primaryParams,
+              new Date(Date.now() - 2_000).toISOString(),
+            )
           : null;
       const submitOptions = {
         timeoutMs: 600_000,

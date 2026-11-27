@@ -31,6 +31,29 @@ const asStringArray = (value: unknown): string[] | null =>
 const sameStrings = (left: string[], right: string[]): boolean =>
   left.length === right.length && left.every((value, index) => value === right[index]);
 
+const normalizeDecimal = (value: string): string | null => {
+  if (!/^\d+(?:\.\d+)?$/.test(value)) return null;
+  const [whole, fraction = ""] = value.split(".");
+  const trimmedFraction = fraction.replace(/0+$/, "");
+  const trimmedWhole = whole.replace(/^0+(?=\d)/, "") || "0";
+  return trimmedFraction ? `${trimmedWhole}.${trimmedFraction}` : trimmedWhole;
+};
+
+/** Compare memos after undoing wallet percent-encoding of the same text. */
+const canonicalMemo = (value: string): string => {
+  let current = value.trim();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) break;
+      current = decoded;
+    } catch {
+      break;
+    }
+  }
+  return current;
+};
+
 export const loopDataBaseUrl = (
   env: Record<string, string | undefined> = process.env,
 ): string => {
@@ -47,37 +70,53 @@ export const loopDataBaseUrl = (
   return "https://data.looptech.io";
 };
 
+type TransferMatch = "exact" | "identity";
+
+/**
+ * A wallet may fund the reviewed transfer from a different unlocked coin.
+ * Sender, receiver, amount, and memo still have to be the transfer the user reviewed.
+ */
 const matchingTransferEvent = (
   details: unknown,
   expected: LoopDataPurchase,
-): boolean => {
-  if (!isRecord(details) || !isRecord(details.events)) return false;
+): TransferMatch | null => {
+  if (!isRecord(details) || !isRecord(details.events)) return null;
 
-  return Object.values(details.events).some((event) => {
-    if (!isRecord(event) || event.choice !== "TransferFactory_Transfer") return false;
+  let matched: TransferMatch | null = null;
+  for (const event of Object.values(details.events)) {
+    if (!isRecord(event) || event.choice !== "TransferFactory_Transfer") continue;
 
     const actingParties = asStringArray(event.acting_parties);
-    if (!actingParties?.includes(expected.senderPartyId)) return false;
+    if (!actingParties?.includes(expected.senderPartyId)) continue;
 
     const choiceArgument = isRecord(event.choice_argument) ? event.choice_argument : null;
     const transfer = choiceArgument && isRecord(choiceArgument.transfer)
       ? choiceArgument.transfer
       : null;
-    if (!transfer) return false;
+    if (!transfer) continue;
 
     const meta = isRecord(transfer.meta) ? transfer.meta : null;
     const values = meta && isRecord(meta.values) ? meta.values : null;
-    const inputHoldingCids = asStringArray(transfer.inputHoldingCids);
+    const memo = typeof values?.memo === "string" ? values.memo : "";
+    const amount = typeof transfer.amount === "string" ? normalizeDecimal(transfer.amount) : null;
+    const expectedAmount = normalizeDecimal(expected.amount);
+    if (
+      transfer.sender !== expected.senderPartyId ||
+      transfer.receiver !== expected.receiverPartyId ||
+      !amount ||
+      amount !== expectedAmount ||
+      canonicalMemo(memo) !== canonicalMemo(expected.memo)
+    ) {
+      continue;
+    }
 
-    return (
-      transfer.sender === expected.senderPartyId &&
-      transfer.receiver === expected.receiverPartyId &&
-      transfer.amount === expected.amount &&
-      values?.memo === expected.memo &&
-      inputHoldingCids !== null &&
-      sameStrings(inputHoldingCids, expected.inputHoldingCids)
-    );
-  });
+    const inputHoldingCids = asStringArray(transfer.inputHoldingCids);
+    if (inputHoldingCids && sameStrings(inputHoldingCids, expected.inputHoldingCids)) {
+      return "exact";
+    }
+    matched = "identity";
+  }
+  return matched;
 };
 
 export const findLoopDataPurchaseUpdateId = async (
@@ -123,7 +162,8 @@ export const findLoopDataPurchaseUpdateId = async (
     );
   });
 
-  for (const candidate of candidates.slice(0, 5)) {
+  let best: { updateId: string; at: number } | null = null;
+  for (const candidate of candidates) {
     const updateId = candidate.update_id as string;
     const detailResponse = await fetcher(
       `${baseUrl}/api/transactions/${encodeURIComponent(updateId)}`,
@@ -136,8 +176,10 @@ export const findLoopDataPurchaseUpdateId = async (
     if (!detailResponse.ok) continue;
 
     const details = (await detailResponse.json()) as unknown;
-    if (matchingTransferEvent(details, expected)) return updateId;
+    if (!matchingTransferEvent(details, expected)) continue;
+    const at = Date.parse(candidate.record_time as string);
+    if (!best || at < best.at) best = { updateId, at };
   }
 
-  return null;
+  return best?.updateId ?? null;
 };

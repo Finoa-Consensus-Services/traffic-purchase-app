@@ -66,7 +66,7 @@ test("Loop Data confirmation returns only an exact reviewed transfer", async () 
   assert.equal(calls.length, 2);
 });
 
-test("Loop Data confirmation rejects a transaction with different inputs", async () => {
+test("Loop Data confirmation accepts a wallet that spent a different input coin", async () => {
   const fetcher = (async (input: RequestInfo | URL) =>
     new Response(
       JSON.stringify(
@@ -94,6 +94,28 @@ test("Loop Data confirmation rejects a transaction with different inputs", async
       baseUrl: "https://data.example",
       fetch: fetcher,
     }),
+    updateId,
+  );
+});
+
+test("Loop Data confirmation rejects a different memo or amount", async () => {
+  const fetcher = (async (input: RequestInfo | URL) =>
+    new Response(JSON.stringify(String(input).includes("/api/transactions/") ? details : listResponse), {
+      status: 200,
+    })) as typeof fetch;
+
+  assert.equal(
+    await findLoopDataPurchaseUpdateId(
+      { ...expected, memo: "splice/memo:member-id=PAR::someone-else" },
+      { baseUrl: "https://data.example", fetch: fetcher },
+    ),
+    null,
+  );
+  assert.equal(
+    await findLoopDataPurchaseUpdateId(
+      { ...expected, amount: "1.00" },
+      { baseUrl: "https://data.example", fetch: fetcher },
+    ),
     null,
   );
 });

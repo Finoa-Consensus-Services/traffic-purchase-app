@@ -5,6 +5,7 @@ import type {
   TxChangedEvent,
 } from "@canton-network/dapp-sdk";
 import { dappLog, dappWarn } from "@/lib/dapp/client-log";
+import { isLedgerUpdateId } from "@/lib/purchase/ledger-update-id";
 import {
   isUnsupportedWalletOperation,
   messageForProviderError,
@@ -36,9 +37,19 @@ function isSyncCapable(status: StatusEvent | null): boolean {
   return type === "browser" || type === "desktop" || type === "mobile";
 }
 
-function updateIdFrom(tx: TxChangedEvent) {
-  if (tx.status !== "executed") return undefined;
-  return tx.payload && "updateId" in tx.payload ? String(tx.payload.updateId) : undefined;
+function updateIdFrom(tx: {
+  status?: string;
+  payload?: { updateId?: unknown };
+}) {
+  if (tx.status && tx.status !== "executed") return undefined;
+  const updateId =
+    tx.payload && "updateId" in tx.payload && tx.payload.updateId != null
+      ? String(tx.payload.updateId)
+      : "";
+  if (!updateId) return undefined;
+  // Vala returns the executed update id without the CIP-0103 status field.
+  if (!tx.status && !isLedgerUpdateId(updateId)) return undefined;
+  return updateId;
 }
 
 function txResult(tx: TxChangedEvent, commandId: string): SubmitResult {
@@ -153,23 +164,29 @@ export async function submitPrepareExecute(
         return failure(commandId, outcome.error);
       }
       if (outcome.kind === "rpc" && outcome.waited?.tx) {
-        watched?.promise.catch(() => {});
-        watched?.cancel();
         const tx = outcome.waited.tx;
-        if (tx.status === "executed") {
-          const updateId = updateIdFrom(tx);
+        const updateId = updateIdFrom(tx);
+        if (updateId) {
+          watched?.promise.catch(() => {});
+          watched?.cancel();
           dappLog("purchase", "prepareExecuteAndWait executed", { commandId, updateId });
           return { ok: true, commandId, updateId };
         }
-        dappWarn("purchase", "prepareExecuteAndWait failed", {
-          commandId,
-          status: tx.status,
-        });
-        return {
-          ok: false,
-          commandId,
-          message: messageForTxFailure(tx.status === "failed" ? "Transaction failed" : undefined),
-        };
+        if (String(tx.status) === "failed") {
+          watched?.promise.catch(() => {});
+          watched?.cancel();
+          dappWarn("purchase", "prepareExecuteAndWait failed", {
+            commandId,
+            status: tx.status,
+          });
+          return {
+            ok: false,
+            commandId,
+            message: messageForTxFailure("Transaction failed"),
+          };
+        }
+        watched?.promise.catch(() => {});
+        watched?.cancel();
       }
 
       watched?.promise.catch(() => {});
