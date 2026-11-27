@@ -6,7 +6,7 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 
 | Suite | Command | Runner | Files | Test Cases | Runs in CI |
 | --- | --- | --- | ---: | ---: | --- |
-| Unit & API route tests | `npm test` | `tsx --test` (`node:test`) | 55 | 189 | Yes (every push / PR) |
+| Unit & API route tests | `npm test` | `tsx --test` (`node:test`) | 56 | 193 | Yes (every push / PR) |
 | Browser E2E (mocked wallet & APIs) | `npm run test:e2e` | Playwright (`chromium`) | 1 | 30 | Yes (every push / PR) |
 
 ---
@@ -57,7 +57,7 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 
 ---
 
-## 2. Unit Tests — Wallet / CIP-0103 dApp Layer (`lib/dapp/*.test.ts` — 36 cases)
+## 2. Unit Tests — Wallet / CIP-0103 dApp Layer (`lib/dapp/*.test.ts` — 40 cases)
 
 | File | Scenarios Covered | Expected Result |
 | --- | --- | --- |
@@ -68,6 +68,7 @@ This document describes the automated test suites in `traffic-purchase-app`, wha
 | `loop-cip103-adapter.test.ts` (5) | Native Loop capability declaration, CIP-0103 connection, Loop `canton:devnet` mapped to PartyLayer `canton:da-devnet`, unrestricted `ledger-end` forwarding, and one-step `prepareExecuteAndWait`. | Replaces PartyLayer's legacy Loop adapter without adding a wallet entry, omits unsupported separate signing, accepts Loop's Devnet id, and returns only a real executed update. |
 | `party-layer-provider.test.ts` (2) | Object with `request`, `on`, and `removeListener`. Listing wallets on the beta channel. | Accepts a CIP-0103 provider surface and rejects incomplete objects. Announced extensions stay in the list beside the beta catalog. |
 | `party-layer-receipt.test.ts` (3) | A submitted PartyLayer receipt that carries an update id, a Vala result nested under `tx.payload`, and a rejected status. | Reads the ledger update from PartyLayer's own receipt and ignores a rejected status. |
+| `ledger-response.test.ts` (4) | Direct ledger-end offset, PartyLayer `response` JSON envelope, active-contract rows inside that envelope, and a payload with no offset. | Balance and contract reads use the same ledger object whether the wallet returns it directly or inside PartyLayer's response string. |
 | `saved-wallets.test.ts` (4) | Store and reload a wallet URL, replace the same URL including a trailing slash, drop invalid entries and broken JSON, remove one saved wallet. | User-added wallets persist in `localStorage` under `traffic-purchase-saved-wallets` and can be removed without affecting the rest of the list. |
 
 ---

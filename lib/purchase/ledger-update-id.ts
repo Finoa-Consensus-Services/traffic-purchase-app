@@ -1,4 +1,5 @@
 import type { LedgerApiParams } from "@canton-network/dapp-sdk";
+import { ledgerOffset, unwrapLedgerPayload } from "@/lib/dapp/ledger-response";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -67,21 +68,12 @@ function visit(node: unknown, wanted: Set<string>, depth: number): string | null
 type LedgerCall = (params: LedgerApiParams) => Promise<unknown>;
 
 export async function readLedgerEndOffset(ledgerApi: LedgerCall): Promise<number> {
-  const result = await ledgerApi({
-    requestMethod: "get",
-    resource: "/v2/state/ledger-end",
-  });
-  const raw = isRecord(result)
-    ? result.offset ??
-      result.Offset ??
-      (isRecord(result.ledgerEnd) ? result.ledgerEnd.offset : null)
-    : null;
-  const parsed =
-    typeof raw === "string" ? parseInt(raw, 10) : typeof raw === "number" ? raw : NaN;
-  if (!Number.isFinite(parsed)) {
-    throw new Error("Ledger did not return an offset");
-  }
-  return parsed;
+  return ledgerOffset(
+    await ledgerApi({
+      requestMethod: "get",
+      resource: "/v2/state/ledger-end",
+    }),
+  );
 }
 
 function wait(ms: number): Promise<void> {
@@ -110,19 +102,21 @@ export async function resolveSubmittedUpdateId(
   const attempts = input.attempts ?? 5;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const response = await ledgerApi({
-        requestMethod: "post",
-        resource: "/v2/commands/completions",
-        body: {
-          ...(input.userId ? { userId: input.userId } : {}),
-          parties: [input.partyId],
-          beginExclusive: input.beginExclusive,
-        },
-        query: {
-          limit: "100",
-          stream_idle_timeout_ms: "500",
-        },
-      });
+      const response = unwrapLedgerPayload(
+        await ledgerApi({
+          requestMethod: "post",
+          resource: "/v2/commands/completions",
+          body: {
+            ...(input.userId ? { userId: input.userId } : {}),
+            parties: [input.partyId],
+            beginExclusive: input.beginExclusive,
+          },
+          query: {
+            limit: "100",
+            stream_idle_timeout_ms: "500",
+          },
+        }),
+      );
       const updateId = completionUpdateId(response, ids);
       if (updateId) {
         return updateId;
